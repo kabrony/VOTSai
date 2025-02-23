@@ -1,0 +1,67 @@
+[2025-02-23 12:21:42,649] INFO: Dash is running on http://127.0.0.1:8050/
+
+[2025-02-23 12:21:50,226] INFO: Logging toggled to OFF
+[2025-02-23 12:22:09,248] INFO: Logging toggled to ON
+[2025-02-23 12:22:09,911] INFO: Logging toggled to OFF
+[2025-02-23 12:24:00,469] INFO: Logging toggled to ON
+[2025-02-23 12:24:03,387] INFO: CPU: 3.5%, Memory: 22.7%, Disk: 23.5%
+[2025-02-23 12:24:08,502] INFO: CPU: 2.0%, Memory: 22.7%, Disk: 23.5%
+[2025-02-23 12:24:13,541] INFO: CPU: 3.4%, Memory: 23.1%, Disk: 23.5%
+[2025-02-23 12:24:18,542] INFO: CPU: 2.4%, Memory: 23.1%, Disk: 23.5%
+[2025-02-23 12:24:24,749] INFO: CPU: 2.2%, Memory: 23.1%, Disk: 23.5%
+[2025-02-23 12:24:29,821] INFO: CPU: 0.9%, Memory: 23.1%, Disk: 23.5%
+[2025-02-23 12:24:34,897] INFO: CPU: 19.4%, Memory: 23.3%, Disk: 23.5%
+[2025-02-23 12:24:40,103] INFO: CPU: 1.5%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:24:45,188] INFO: CPU: 2.5%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:24:50,342] INFO: CPU: 2.3%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:24:55,436] INFO: CPU: 1.5%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:25:00,589] INFO: CPU: 0.8%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:25:05,635] INFO: CPU: 3.1%, Memory: 23.2%, Disk: 23.5%
+[2025-02-23 12:25:10,729] INFO: CPU: 18.2%, Memory: 23.4%, Disk: 23.5%
+[2025-02-23 12:25:15,815] INFO: CPU: 3.2%, Memory: 23.5%, Disk: 23.5%
+[2025-02-23 12:25:19,920] INFO: CPU: 1.1%, Memory: 23.5%, Disk: 23.5%
+[2025-02-23 12:25:26,061] INFO: CPU: 25.2%, Memory: 23.5%, Disk: 23.5%
+[2025-02-23 12:25:31,139] INFO: CPU: 9.5%, Memory: 24.1%, Disk: 23.5%
+[2025-02-23 12:25:36,300] INFO: CPU: 23.9%, Memory: 24.8%, Disk: 23.5%
+[2025-02-23 12:25:41,532] INFO: CPU: 3.1%, Memory: 24.2%, Disk: 23.5%
+[2025-02-23 12:25:46,619] INFO: CPU: 5.1%, Memory: 24.2%, Disk: 23.5%
+[2025-02-23 12:25:52,753] INFO: CPU: 1.4%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:25:56,915] INFO: CPU: 2.5%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:02,030] INFO: CPU: 2.1%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:07,034] INFO: CPU: 2.3%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:26:12,172] INFO: CPU: 3.1%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:17,447] INFO: CPU: 11.2%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:22,601] INFO: CPU: 3.0%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:27,708] INFO: CPU: 2.0%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:32,846] INFO: CPU: 2.1%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:26:37,931] INFO: CPU: 1.9%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:42,911] INFO: CPU: 1.7%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:47,959] INFO: CPU: 3.9%, Memory: 24.3%, Disk: 23.5%
+[2025-02-23 12:26:53,026] INFO: CPU: 8.4%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:26:58,106] INFO: CPU: 6.0%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:27:03,273] INFO: CPU: 3.4%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:27:08,374] INFO: CPU: 2.9%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:27:13,518] INFO: CPU: 3.2%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:27:18,648] INFO: CPU: 10.2%, Memory: 24.4%, Disk: 23.5%
+[2025-02-23 12:27:21,756] INFO: Logging toggled to OFF
+[2025-02-23 12:27:36,044] INFO: Logging toggled to OFF
+[2025-02-23 12:28:27,686] INFO: CPU: 1.8%, Memory: 25.7%, Disk: 23.5%
+[2025-02-23 12:28:27,700] INFO: Logging toggled to OFF
+[2025-02-23 12:32:45,478] INFO: Logging toggled to OFF
+[2025-02-23 12:32:57,095] INFO: CPU: 23.3%, Memory: 25.3%, Disk: 23.5%
+[2025-02-23 12:32:57,680] INFO: Logging toggled to OFF
+[2025-02-23 12:33:13,920] INFO: CPU: 9.5%, Memory: 25.3%, Disk: 23.5%
+[2025-02-23 12:33:13,936] INFO: Logging toggled to OFF
+[2025-02-23 12:35:12,758] INFO: CPU: 18.8%, Memory: 24.9%, Disk: 23.5%
+[2025-02-23 12:35:12,892] INFO: Logging toggled to OFF
+[2025-02-23 12:41:44,637] INFO: Logging toggled to OFF
+[2025-02-23 12:47:37,754] INFO: Logging toggled to ON
+[2025-02-23 12:47:42,388] INFO: CPU: 2.0%, Memory: 26.5%, Disk: 23.5%
+[2025-02-23 12:47:48,819] INFO: CPU: 43.4%, Memory: 26.9%, Disk: 23.5%
+[2025-02-23 12:47:53,884] INFO: CPU: 7.3%, Memory: 26.7%, Disk: 23.5%
+[2025-02-23 12:47:58,963] INFO: CPU: 14.9%, Memory: 26.8%, Disk: 23.5%
+[2025-02-23 12:48:04,114] INFO: CPU: 6.6%, Memory: 25.7%, Disk: 23.5%
+[2025-02-23 12:48:04,148] INFO: Logging toggled to OFF
+[2025-02-23 12:53:41,266] INFO: CPU: 2.9%, Memory: 26.3%, Disk: 23.5%
+[2025-02-23 12:53:41,603] INFO: Logging toggled to OFF
+[2025-02-23 12:53:55,940] INFO: Logging toggled to OFF

@@ -1,0 +1,17 @@
+[
+    {
+        "timestamp": "2023-10-01 12:34:56",
+        "level": "INFO",
+        "message": "User logged in"
+    },
+    {
+        "timestamp": "2023-10-01 12:35:00",
+        "level": "ERROR",
+        "message": "Failed to load resource"
+    },
+    {
+        "timestamp": "2023-10-01 12:36:00",
+        "level": "DEBUG",
+        "message": "System check completed"
+    }
+]

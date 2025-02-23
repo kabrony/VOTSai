@@ -1,0 +1,5 @@
+[2023-10-01 12:34:56] INFO: User logged in
+[2023-10-01 12:35:00] ERROR: Failed to load resource
+
+[Invalid line here]
+[2023-10-01 12:36:00] DEBUG: System check completed

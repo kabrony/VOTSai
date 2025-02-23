@@ -1,2 +1,2 @@
 #!/bin/bash
-python -m playwright install
+playwright install --with-deps
