@@ -1,0 +1,105 @@
+# ~/VOTSai/app.py
+import streamlit as st
+import asyncio
+import os
+from collections import deque
+from core.models import ModelFactory
+from core.memory import init_memory_db, update_memory, get_relevant_memory
+from core.classifier import IntentClassifier
+from handlers.query import orchestrate_query
+from utils.constants import SHORT_TERM_MAX
+from agents.codeAgent import analyze_code
+import logging
+
+logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+def load_env():
+    env_file = ".env"
+    if os.path.exists(env_file):
+        with open(env_file, "r") as f:
+            for line in f:
+                if line.strip() and not line.startswith("#"):
+                    key, value = line.strip().split("=", 1)
+                    os.environ[key] = value
+    if "PERPLEXITY_API_KEY" not in os.environ or "DEEPSEEK_API_KEY" not in os.environ:
+        st.error("⚠️ Missing API keys. Set PERPLEXITY_API_KEY and DEEPSEEK_API_KEY in .env.")
+        return False
+    return True
+
+def main():
+    st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
+    
+    if "short_term_memory" not in st.session_state:
+        st.session_state.short_term_memory = deque(maxlen=SHORT_TERM_MAX)
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = "Auto"
+    if "web_priority" not in st.session_state:
+        st.session_state.web_priority = True
+    if "timeout" not in st.session_state:
+        st.session_state.timeout = 60
+    if "share_format" not in st.session_state:
+        st.session_state.share_format = "Text"
+    if "creativity_level" not in st.session_state:
+        st.session_state.creativity_level = 50
+
+    if not load_env():
+        return
+
+    conn = init_memory_db("vots_agi_memory.db")
+    model_factory = ModelFactory()
+    intent_classifier = IntentClassifier()
+
+    with st.sidebar:
+        st.header("⚙️ AI Configuration")
+        model_options = ["Auto", "Perplexity API", "DeepSeek API", "Local DeepSeek"]
+        st.session_state.selected_model = st.selectbox("Model Selection", model_options, index=model_options.index(st.session_state.selected_model))
+        st.session_state.web_priority = st.toggle("🌐 Web Integration", value=st.session_state.web_priority)
+        st.session_state.creativity_level = st.slider("🧠 Creativity Level", 0, 100, st.session_state.creativity_level)
+        st.session_state.timeout = st.slider("Timeout (s)", 10, 120, st.session_state.timeout)
+
+    st.title("VOTSai Advanced Research Platform")
+    st.markdown("Your AI-powered research companion.")
+
+    tab1, tab2 = st.tabs(["Query", "Code Analysis"])
+
+    with tab1:
+        query = st.text_area("Enter your research query:", height=150, placeholder="e.g., 'crawl https://example.com' or 'explain quantum computing'")
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            st.session_state.share_format = st.selectbox("Share Format", ["Text", "Markdown", "JSON"], index=["Text", "Markdown", "JSON"].index(st.session_state.share_format))
+        
+        if st.button("Execute Query", key="query_btn"):
+            if query:
+                with st.spinner("Processing..."):
+                    model = model_factory.select_model(query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
+                    temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
+                    result = asyncio.run(orchestrate_query(
+                        query=query,
+                        timeout=st.session_state.timeout,
+                        short_term_memory=st.session_state.short_term_memory,
+                        conn=conn,
+                        model=model,
+                        web_priority=st.session_state.web_priority,
+                        temperature=temperature,
+                        share_format=st.session_state.share_format
+                    ))
+                    st.markdown(result["final_answer"])
+                    st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
+                             f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
+                    st.success(f"Completed in {result['latency']:.2f}s")
+            else:
+                st.warning("Please enter a query.")
+
+    with tab2:
+        code_input = st.text_area("Enter code to analyze:", height=150, placeholder="e.g., 'def add(a, b): return a + b'")
+        if st.button("Analyze Code", key="code_btn"):
+            if code_input:
+                with st.spinner("Analyzing..."):
+                    analysis = asyncio.run(analyze_code(code_input))
+                    st.markdown(f"**Analysis Result:**\n{analysis}")
+            else:
+                st.warning("Please enter code to analyze.")
+
+if __name__ == "__main__":
+    main()
