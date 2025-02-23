@@ -1,4 +1,3 @@
-# ~/VOTSai/app.py
 import streamlit as st
 import asyncio
 import os
@@ -69,7 +68,8 @@ def main():
     st.title("VOTSai Advanced Research Platform")
     st.markdown("Your AI-powered research companion.")
 
-    tab1, tab2, tab3 = st.tabs(["Query", "Code Analysis", "Directory & Git"])
+    # Updated to include Documentation tab
+    tab1, tab2, tab3, tab4 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation"])
 
     with tab1:
         query = st.text_area("Enter your research query:", height=150, placeholder="e.g., 'crawl https://example.com' or 'explain quantum computing'")
@@ -132,6 +132,23 @@ def main():
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
             else:
                 st.warning("Please enter a query.")
+
+    with tab4:
+        st.header("Documentation")
+        try:
+            with open("README.md", "r") as f:
+                readme_content = f.read()
+            st.markdown(readme_content, unsafe_allow_html=True)
+        except FileNotFoundError:
+            st.error("README.md not found.")
+        
+        st.header("System Documentation")
+        try:
+            with open("SYSTEM_DOCUMENTATION.md", "r") as f:
+                system_doc_content = f.read()
+            st.markdown(system_doc_content, unsafe_allow_html=True)
+        except FileNotFoundError:
+            st.error("SYSTEM_DOCUMENTATION.md not found.")
 
 if __name__ == "__main__":
     main()
