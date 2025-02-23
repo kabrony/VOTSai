@@ -1,6 +1,7 @@
 import streamlit as st
 import asyncio
 import os
+import sys  # Added for sys.executable
 import sqlite3
 import subprocess
 from collections import deque
@@ -42,17 +43,28 @@ def load_env():
     return True
 
 def ensure_playwright_installed():
-    """Ensure Playwright browsers are installed."""
+    """Ensure Playwright module and browsers are installed, with fallback handling."""
+    try:
+        import playwright  # Check if module is available
+    except ImportError:
+        st.error("Playwright module not found. Please ensure 'playwright' is in your requirements.txt and installed in the deployment environment.")
+        logger.error("Playwright module not installed in the environment.")
+        return False
+
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     if not os.path.exists(playwright_dir) or not any(os.path.isdir(os.path.join(playwright_dir, d)) for d in os.listdir(playwright_dir)):
-        st.warning("Playwright browsers not found. Installing now...")
+        st.warning("Playwright browsers not found. Attempting to install now...")
         try:
-            process = subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True, capture_output=True, text=True)
+            process = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, capture_output=True, text=True)
             logger.info(f"Playwright install output: {process.stdout}")
             st.success("Playwright browsers installed successfully!")
         except subprocess.CalledProcessError as e:
             st.error(f"Failed to install Playwright browsers: {e.stderr}")
             logger.error(f"Playwright installation failed: {e.stderr}")
+            return False
+        except Exception as e:
+            st.error(f"Unexpected error installing Playwright: {str(e)}")
+            logger.error(f"Unexpected Playwright install error: {str(e)}")
             return False
     return True
 
