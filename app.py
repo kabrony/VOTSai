@@ -14,13 +14,13 @@ import logging
 import datetime
 import pandas as pd
 import altair as alt
+import ollama
 
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Custom SQLite adapter for datetime to avoid deprecation warning
+# Custom SQLite adapter for datetime
 def adapt_datetime(dt):
-    """Convert Python datetime to ISO format string for SQLite."""
     return dt.isoformat()
 
 sqlite3.register_adapter(datetime.datetime, adapt_datetime)
@@ -40,7 +40,6 @@ def load_env():
     return True
 
 def ensure_playwright_installed():
-    """Ensure Playwright browsers are installed."""
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     if not os.path.exists(playwright_dir) or not any(os.path.isdir(os.path.join(playwright_dir, d)) for d in os.listdir(playwright_dir)):
         st.warning("Playwright browsers not found. Installing now...")
@@ -55,7 +54,6 @@ def ensure_playwright_installed():
     return True
 
 def preprocess_query(query):
-    """Preprocess the query to ensure valid URL format for crawl commands."""
     query = query.strip()
     if query.lower().startswith("crawl "):
         url = query[6:].strip()
@@ -67,14 +65,29 @@ def preprocess_query(query):
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
     return query
 
+def analyze_response_with_r1(response, query, memory_context):
+    """Analyze and refine response using DeepSeek R1 7B via Ollama."""
+    try:
+        prompt = (
+            f"Original Query: {query}\n"
+            f"Initial Response: {response}\n"
+            f"Memory Context: {memory_context}\n\n"
+            "Using chain-of-thought reasoning, analyze the initial response for accuracy, creativity, and completeness relative to the query. "
+            "Refine it by adding vivid details, correcting inconsistencies, and expanding the narrative to better match the query’s scope. "
+            "Return the enhanced narrative, maintaining the original structure but enriching it with deeper worldbuilding, character development, and thematic complexity."
+        )
+        r1_response = ollama.generate(model="deepseek-r1-7b", prompt=prompt)
+        return r1_response["response"]
+    except Exception as e:
+        logger.error(f"R1 analysis failed: {str(e)}")
+        return response  # Fallback to original if R1 fails
+
 def get_directory_contents():
-    """Return contents of ~/VOTSai directory as a string."""
     dir_path = os.getcwd()
     contents = os.listdir(dir_path)
     return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
 
 def update_database_schema(conn):
-    """Update the long_term_memory table schema to include all required columns."""
     c = conn.cursor()
     c.execute("PRAGMA table_info(long_term_memory)")
     columns = [col[1] for col in c.fetchall()]
@@ -91,7 +104,6 @@ def update_database_schema(conn):
     conn.commit()
 
 def generate_daily_report(conn, short_term_memory):
-    """Generate a daily report of queries and results."""
     today = datetime.datetime.now().date()
     today_str = today.isoformat()
     report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
@@ -184,7 +196,8 @@ def main():
                     processed_query = preprocess_query(query)
                     model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
-                    for attempt in range(2):  # Retry once if API fails
+                    memory_context = get_relevant_memory(conn, processed_query)
+                    for attempt in range(2):
                         try:
                             result = asyncio.run(orchestrate_query(
                                 query=processed_query,
@@ -200,33 +213,35 @@ def main():
                         except Exception as e:
                             logger.error(f"Query attempt {attempt + 1} failed: {str(e)}")
                             if attempt == 1:
-                                st.error(f"Failed to process query after retries: {str(e)}")
-                                result = {"final_answer": f"Error: Query processing failed - {str(e)}", 
-                                          "model_name": st.session_state.selected_model, 
+                                st.error(f"Failed after retries: {str(e)}")
+                                result = {"final_answer": f"Error: {str(e)}", "model_name": st.session_state.selected_model, 
                                           "latency": 0, "actions": 1, "model_reasoning": "Query failure"}
                     if "final_answer" in result:
-                        st.markdown(result["final_answer"])
+                        # Analyze and refine with DeepSeek R1 7B via Ollama
+                        refined_answer = analyze_response_with_r1(result["final_answer"], processed_query, memory_context)
+                        st.markdown(refined_answer)
                         if result["final_answer"] == "No relevant memory found.":
-                            st.info("No matching memory entries found. Try a different keyword or run some queries first.")
+                            st.info("No matching memory entries found.")
                         elif "failed" in result["final_answer"].lower():
-                            st.error("Query execution failed. Check logs or try a simpler query.")
+                            st.error("Query execution failed.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
                         result["timestamp"] = datetime.datetime.now().isoformat()
                         result["model"] = result["model_name"]
+                        result["answer"] = refined_answer  # Update with refined answer
                         telemetry_entry = {
                             "timestamp": result["timestamp"],
                             "query": processed_query,
                             "latency": result["latency"],
                             "model": result["model_name"],
                             "input_tokens": result.get("input_tokens", 0),
-                            "output_tokens": result.get("output_tokens", 0)
+                            "output_tokens": result.get("output_tokens", len(refined_answer.split()))
                         }
                         st.session_state.telemetry_data.append(telemetry_entry)
                         update_memory(conn, processed_query, result, st.session_state.short_term_memory)
                         st.success(f"Completed in {result['latency']:.2f}s")
                     else:
-                        st.error("Query failed. Check logs for details.")
+                        st.error("Query failed. Check logs.")
             else:
                 st.warning("Please enter a query.")
         
