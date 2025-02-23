@@ -61,7 +61,6 @@ def preprocess_query(query):
             query = f"crawl https://{url}"
             st.info(f"Added 'https://' to URL: {query}")
             logger.info(f"Preprocessed query: {query}")
-    # Add CoT and deep research instruction
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
     return query
 
@@ -73,8 +72,8 @@ def analyze_response_with_r1(response, query, memory_context):
             f"Initial Response: {response}\n"
             f"Memory Context: {memory_context}\n\n"
             "Using chain-of-thought reasoning, analyze the initial response for accuracy, creativity, and completeness relative to the query. "
-            "Refine it by adding vivid details, correcting inconsistencies, and expanding the narrative to better match the query’s scope. "
-            "Return the enhanced narrative, maintaining the original structure but enriching it with deeper worldbuilding, character development, and thematic complexity."
+            "Refine it by adding vivid details, correcting inconsistencies, and expanding the response to better match the query’s scope. "
+            "Leverage memory context to enhance continuity and depth. Return the enhanced response."
         )
         r1_response = ollama.generate(model="deepseek-r1-7b", prompt=prompt)
         return r1_response["response"]
@@ -196,7 +195,6 @@ def main():
                     processed_query = preprocess_query(query)
                     model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
-                    memory_context = get_relevant_memory(conn, processed_query)
                     for attempt in range(2):
                         try:
                             result = asyncio.run(orchestrate_query(
@@ -217,7 +215,7 @@ def main():
                                 result = {"final_answer": f"Error: {str(e)}", "model_name": st.session_state.selected_model, 
                                           "latency": 0, "actions": 1, "model_reasoning": "Query failure"}
                     if "final_answer" in result:
-                        # Analyze and refine with DeepSeek R1 7B via Ollama
+                        memory_context = get_relevant_memory(conn, processed_query)
                         refined_answer = analyze_response_with_r1(result["final_answer"], processed_query, memory_context)
                         st.markdown(refined_answer)
                         if result["final_answer"] == "No relevant memory found.":
@@ -228,7 +226,7 @@ def main():
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
                         result["timestamp"] = datetime.datetime.now().isoformat()
                         result["model"] = result["model_name"]
-                        result["answer"] = refined_answer  # Update with refined answer
+                        result["answer"] = refined_answer
                         telemetry_entry = {
                             "timestamp": result["timestamp"],
                             "query": processed_query,
