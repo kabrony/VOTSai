@@ -5,7 +5,7 @@ import sqlite3
 from time import time
 from typing import Dict, Any, Deque
 from core.models import AIModel
-from core.memory import get_relevant_memory  # Added import
+from core.memory import get_relevant_memory
 from utils.helpers import format_response
 from handlers.web import crawl_url
 import logging
@@ -59,4 +59,23 @@ async def handle_recall_query(query: str, conn: sqlite3.Connection, start_time: 
     recall_query = match.group(1).strip()
     memory_answer = get_relevant_memory(conn, recall_query)
     latency = time() - start_time
-    final_answer = format_response(query, {'answer': memory_answer, 'latency': latency, 'model_name': "Memory Recall", 'input_tokens': 0, 'output_tokens': 0, 'actions':
+    final_answer = format_response(query, {'answer': memory_answer, 'latency': latency, 'model_name': "Memory Recall", 'input_tokens': 0, 'output_tokens': 0, 'actions': 1, 'model_reasoning': "Memory lookup"}, share_format)
+    return {'final_answer': final_answer, 'latency': latency, 'model_name': "Memory Recall", 'actions': 1, 'query_type': "recall", 'model_reasoning': "Memory lookup"}
+
+async def orchestrate_query(query: str, timeout: int, short_term_memory: Deque, conn: sqlite3.Connection, model: AIModel, web_priority: bool = True, temperature: float = 0.7, share_format: str = "Text") -> Dict[str, Any]:
+    start_time = time()
+    memory_context = f"Short-term: {json.dumps(list(short_term_memory)[-3:])}; Long-term: {get_relevant_memory(conn, query)}"
+    try:
+        if re.match(r'crawl\s+', query, re.IGNORECASE):
+            result = await handle_crawl_query(query, timeout, memory_context, start_time, model, web_priority, temperature, share_format)
+        elif re.match(r'recall\s+', query, re.IGNORECASE):
+            result = await handle_recall_query(query, conn, start_time, share_format)
+        else:
+            result = await handle_general_query(query, timeout, memory_context, start_time, model, web_priority, temperature, share_format)
+        update_memory(conn, query, result, short_term_memory)
+        return result
+    except Exception as e:
+        logger.error(f"Orchestration failed with {model.name}: {e}")
+        latency = time() - start_time
+        final_answer = format_response(query, {'answer': f"Error: Orchestration failed - {e}", 'latency': latency, 'model_name': model.name, 'input_tokens': 0, 'output_tokens': 0, 'actions': 1, 'model_reasoning': "Orchestration failure"}, share_format)
+        return {'final_answer': final_answer, 'latency': latency, 'model_name': model.name, 'actions': 1, 'query_type': "error", 'model_reasoning': "Orchestration failure"}
