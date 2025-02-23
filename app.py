@@ -16,16 +16,18 @@ import pandas as pd
 import altair as alt
 import ollama
 
+# Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Custom SQLite adapter for datetime
+# SQLite datetime adapter
 def adapt_datetime(dt):
     return dt.isoformat()
 
 sqlite3.register_adapter(datetime.datetime, adapt_datetime)
 
 def load_env():
+    """Load environment variables from .env file."""
     env_file = ".env"
     if os.path.exists(env_file):
         with open(env_file, "r") as f:
@@ -40,6 +42,7 @@ def load_env():
     return True
 
 def ensure_playwright_installed():
+    """Ensure Playwright browsers are installed."""
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     if not os.path.exists(playwright_dir) or not any(os.path.isdir(os.path.join(playwright_dir, d)) for d in os.listdir(playwright_dir)):
         st.warning("Playwright browsers not found. Installing now...")
@@ -54,56 +57,75 @@ def ensure_playwright_installed():
     return True
 
 def preprocess_query(query):
+    """Preprocess query and detect crawl intent."""
     query = query.strip()
-    if query.lower().startswith("crawl "):
+    is_crawl = query.lower().startswith("crawl ")
+    if is_crawl:
         url = query[6:].strip()
         if not (url.startswith("http://") or url.startswith("https://") or url.startswith("file://") or url.startswith("raw:")):
             query = f"crawl https://{url}"
             st.info(f"Added 'https://' to URL: {query}")
             logger.info(f"Preprocessed query: {query}")
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
-    return query
+    return query, is_crawl
 
-def analyze_response_with_r1(response, query, memory_context):
-    """Analyze and refine response using DeepSeek R1 Latest via Ollama."""
+def analyze_response_with_r1(response, query, memory_context, is_crawl=False):
+    """Analyze and refine response using DeepSeek R1 Latest via Ollama, tailored to query type."""
     try:
         logger.info("Attempting R1 analysis with Ollama using deepseek-r1:latest")
-        prompt = (
-            f"Original Query: {query}\n"
-            f"Initial Response: {response}\n"
-            f"Memory Context: {memory_context}\n\n"
-            "Using chain-of-thought reasoning, analyze the initial response for accuracy, functionality, and adherence to the query’s intent. "
-            "If the query requests a script, generate an improved version with robust error handling, performance optimizations, and enhancements (e.g., alerts for high usage), "
-            "incorporating memory context (e.g., past log-related queries) for consistency and depth. "
-            "Return the refined script followed by a detailed analysis section."
-        )
+        if is_crawl:
+            prompt = (
+                f"Original Query: {query}\n"
+                f"Initial Response (Web Crawl Summary): {response}\n"
+                f"Memory Context: {memory_context}\n\n"
+                "Using chain-of-thought reasoning, analyze the initial web crawl summary for accuracy, completeness, and relevance to the query. "
+                "Provide a detailed, creative enhancement of the website’s purpose, structure, and potential features, "
+                "incorporating memory context (e.g., past web or system-related queries) for consistency and depth. "
+                "Return the enhanced description followed by a detailed analysis section."
+            )
+        else:
+            prompt = (
+                f"Original Query: {query}\n"
+                f"Initial Response: {response}\n"
+                f"Memory Context: {memory_context}\n\n"
+                "Using chain-of-thought reasoning, analyze the initial response for accuracy, functionality, and adherence to the query’s intent. "
+                "If the query requests a script, generate an improved version with robust error handling, performance optimizations, and enhancements (e.g., alerts for high usage), "
+                "incorporating memory context (e.g., past log-related queries) for consistency and depth. "
+                "Return the refined script followed by a detailed analysis section."
+            )
         r1_response = ollama.generate(model="deepseek-r1:latest", prompt=prompt)
         return r1_response["response"]
     except Exception as e:
         logger.error(f"R1 analysis failed: {str(e)}")
         return f"{response}\n\n**Analysis**: R1 analysis unavailable due to error: {str(e)}"
+
 def get_directory_contents():
+    """Return formatted list of current directory contents."""
     dir_path = os.getcwd()
-    contents = os.listdir(dir_path)
-    return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
+    try:
+        contents = os.listdir(dir_path)
+        return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
+    except Exception as e:
+        logger.error(f"Failed to list directory contents: {str(e)}")
+        return "Error: Unable to list directory contents."
 
 def update_database_schema(conn):
-    c = conn.cursor()
-    c.execute("PRAGMA table_info(long_term_memory)")
-    columns = [col[1] for col in c.fetchall()]
-    
-    if "model" not in columns:
-        c.execute("ALTER TABLE long_term_memory ADD COLUMN model TEXT")
-    if "latency" not in columns:
-        c.execute("ALTER TABLE long_term_memory ADD COLUMN latency REAL")
-    if "input_tokens" not in columns:
-        c.execute("ALTER TABLE long_term_memory ADD COLUMN input_tokens INTEGER")
-    if "output_tokens" not in columns:
-        c.execute("ALTER TABLE long_term_memory ADD COLUMN output_tokens INTEGER")
-    
-    conn.commit()
+    """Update long_term_memory table schema if needed."""
+    try:
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(long_term_memory)")
+        columns = {col[1] for col in c.fetchall()}
+        
+        for col, col_type in [("model", "TEXT"), ("latency", "REAL"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER")]:
+            if col not in columns:
+                c.execute(f"ALTER TABLE long_term_memory ADD COLUMN {col} {col_type}")
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"Failed to update database schema: {str(e)}")
+        st.error(f"Database schema update failed: {str(e)}")
 
 def generate_daily_report(conn, short_term_memory):
+    """Generate a daily report of queries from memory."""
     today = datetime.datetime.now().date()
     today_str = today.isoformat()
     report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
@@ -121,22 +143,27 @@ def generate_daily_report(conn, short_term_memory):
             report_data["Input Tokens"].append(entry.get("input_tokens", 0))
             report_data["Output Tokens"].append(entry.get("output_tokens", 0))
     
-    c = conn.cursor()
-    c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
-    for row in c.fetchall():
-        report_data["Timestamp"].append(row[0])
-        report_data["Query"].append(row[1])
-        report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
-        report_data["Model"].append(row[3] if row[3] is not None else "Unknown")
-        report_data["Latency"].append(row[4] if row[4] is not None else 0)
-        report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
-        report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
+    try:
+        c = conn.cursor()
+        c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
+        for row in c.fetchall():
+            report_data["Timestamp"].append(row[0])
+            report_data["Query"].append(row[1])
+            report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
+            report_data["Model"].append(row[3] if row[3] else "Unknown")
+            report_data["Latency"].append(row[4] if row[4] is not None else 0)
+            report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
+            report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
+    except sqlite3.Error as e:
+        logger.error(f"Failed to fetch daily report data: {str(e)}")
     
     return pd.DataFrame(report_data)
 
 def main():
+    """Main function for VOTSai application."""
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
     
+    # Initialize session state
     if "short_term_memory" not in st.session_state:
         st.session_state.short_term_memory = deque(maxlen=SHORT_TERM_MAX)
     if "selected_model" not in st.session_state:
@@ -150,7 +177,7 @@ def main():
     if "creativity_level" not in st.session_state:
         st.session_state.creativity_level = 50
     if "telemetry_data" not in st.session_state:
-        st.session_state.telemetry_data = []
+        st.session_state.telemetry_data = deque(maxlen=1000)  # Cap telemetry to prevent memory issues
 
     if not load_env():
         return
@@ -163,6 +190,36 @@ def main():
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
+    # Cyberpunk neon footer CSS
+    footer_style = """
+    <style>
+    .cyberpunk-footer {
+        position: fixed;
+        bottom: 10px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        font-family: 'Courier New', monospace;
+        font-size: 16px;
+        color: #00FF00;
+        text-shadow: 0 0 5px #00FF00, 0 0 10px #00FF00, 0 0 20px #00FF00;
+        animation: matrix 1.5s infinite alternate;
+    }
+    @keyframes matrix {
+        from { opacity: 0.7; }
+        to { opacity: 1; }
+    }
+    .cyberpunk-footer a {
+        color: #00FF00;
+        text-decoration: none;
+    }
+    .cyberpunk-footer a:hover {
+        text-shadow: 0 0 10px #00FF00, 0 0 20px #00FF00, 0 0 30px #00FF00;
+    }
+    </style>
+    """
+    st.markdown(footer_style, unsafe_allow_html=True)
+
     with st.sidebar:
         st.header("⚙️ AI Configuration")
         model_options = ["Auto", "Perplexity API", "DeepSeek API", "Local DeepSeek"]
@@ -172,9 +229,13 @@ def main():
         st.session_state.timeout = st.slider("Timeout (s)", 10, 120, st.session_state.timeout)
         if st.button("Clear Memory"):
             st.session_state.short_term_memory.clear()
-            conn.execute("DELETE FROM long_term_memory")
-            conn.commit()
-            st.session_state.telemetry_data = []
+            try:
+                conn.execute("DELETE FROM long_term_memory")
+                conn.commit()
+            except sqlite3.Error as e:
+                logger.error(f"Failed to clear long_term_memory: {str(e)}")
+                st.error(f"Failed to clear memory: {str(e)}")
+            st.session_state.telemetry_data.clear()
             st.success("Memory and telemetry cleared!")
 
     st.title("VOTSai Advanced Research Platform")
@@ -193,7 +254,7 @@ def main():
         if st.button("Execute Query", key="query_btn"):
             if query:
                 with st.spinner("Processing..."):
-                    processed_query = preprocess_query(query)
+                    processed_query, is_crawl = preprocess_query(query)
                     model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
                     for attempt in range(2):
@@ -217,7 +278,7 @@ def main():
                                           "latency": 0, "actions": 1, "model_reasoning": "Query failure"}
                     if "final_answer" in result:
                         memory_context = get_relevant_memory(conn, processed_query)
-                        refined_answer = analyze_response_with_r1(result["final_answer"], processed_query, memory_context)
+                        refined_answer = analyze_response_with_r1(result["final_answer"], processed_query, memory_context, is_crawl=is_crawl)
                         st.markdown(refined_answer)
                         if result["final_answer"] == "No relevant memory found.":
                             st.info("No matching memory entries found.")
@@ -234,18 +295,18 @@ def main():
                             "latency": result["latency"],
                             "model": result["model_name"],
                             "input_tokens": result.get("input_tokens", 0),
-                            "output_tokens": result.get("output_tokens", len(refined_answer.split()))
+                            "output_tokens": result.get("output_tokens", len(refined_answer.split()) if refined_answer else 0)
                         }
                         st.session_state.telemetry_data.append(telemetry_entry)
                         update_memory(conn, processed_query, result, st.session_state.short_term_memory)
                         if "save the script as" in processed_query.lower():
-                            script_name = processed_query.lower().split("save the script as")[1].split("'")[1]
                             try:
+                                script_name = processed_query.lower().split("save the script as")[1].split("'")[1]
                                 with open(script_name, "w", encoding="utf-8") as f:
                                     script_content = refined_answer.split("**Analysis**")[0].strip() if "**Analysis**" in refined_answer else refined_answer
                                     f.write(script_content)
                                 st.info(f"Script saved as '{script_name}'")
-                            except Exception as e:
+                            except (IndexError, IOError) as e:
                                 st.error(f"Failed to save script: {str(e)}")
                                 logger.error(f"Script save failed: {str(e)}")
                         st.success(f"Completed in {result['latency']:.2f}s")
@@ -306,16 +367,14 @@ def main():
         st.header("Documentation")
         try:
             with open("README.md", "r") as f:
-                readme_content = f.read()
-            st.markdown(readme_content, unsafe_allow_html=True)
+                st.markdown(f.read(), unsafe_allow_html=True)
         except FileNotFoundError:
             st.error("README.md not found.")
         
         st.header("System Documentation")
         try:
             with open("SYSTEM_DOCUMENTATION.md", "r") as f:
-                system_doc_content = f.read()
-            st.markdown(system_doc_content, unsafe_allow_html=True)
+                st.markdown(f.read(), unsafe_allow_html=True)
         except FileNotFoundError:
             st.error("SYSTEM_DOCUMENTATION.md not found.")
 
@@ -346,6 +405,9 @@ def main():
             st.write(f"Total Output Tokens: {report_df['Output Tokens'].sum()}")
         else:
             st.info("No queries recorded for today.")
+
+    # Add cyberpunk footer to all tabs
+    st.markdown('<div class="cyberpunk-footer">Powered by <a href="https://www.villageofthousands.io/" target="_blank">https://www.villageofthousands.io/</a></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
