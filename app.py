@@ -13,7 +13,7 @@ from handlers.query import orchestrate_query
 from utils.constants import SHORT_TERM_MAX
 from agents.codeAgent import analyze_code
 import logging
-import datetime  # Already imported correctly
+import datetime
 import pandas as pd
 import altair as alt
 from langchain.text_splitter import CharacterTextSplitter
@@ -164,7 +164,7 @@ def generate_daily_report(conn: sqlite3.Connection, short_term_memory: deque) ->
     
     for entry in short_term_memory:
         if "timestamp" not in entry:
-            entry["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
+            entry["timestamp"] = datetime.datetime.now().isoformat()
         if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
             report_data["Timestamp"].append(entry["timestamp"])
             report_data["Query"].append(entry["query"])
@@ -275,7 +275,8 @@ def main():
                                 perplexity_context = query_perplexity(processed_query.split(" [")[0])
                             else:
                                 perplexity_context = ""
-                            result = st.session_state.rag_chain.run(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
+                            # Updated from .run to .invoke to resolve deprecation warning
+                            result = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
                             latency = 0  # Placeholder; LangChain doesn't provide latency directly
                             model_name = "Local DeepSeek (RAG)"
                             actions = 1
@@ -325,7 +326,7 @@ def main():
                         st.warning("Initial query execution encountered issues; displaying best effort response.")
                     st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, Actions: {actions}, Reasoning: {reasoning}")
                     result_entry = {
-                        "timestamp": datetime.datetime.now().isoformat(),  # Updated to datetime.datetime.now()
+                        "timestamp": datetime.datetime.now().isoformat(),
                         "query": processed_query,
                         "answer": result,
                         "model": model_name,
@@ -357,7 +358,7 @@ def main():
                 seen_queries = set()
                 for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):
                     if "timestamp" not in entry:
-                        entry["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
+                        entry["timestamp"] = datetime.datetime.now().isoformat()
                     query_key = (entry["query"], entry["timestamp"])
                     if query_key not in seen_queries:
                         seen_queries.add(query_key)
@@ -394,7 +395,7 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
-                    result["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
+                    result["timestamp"] = datetime.datetime.now().isoformat()
                     result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
