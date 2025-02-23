@@ -255,7 +255,11 @@ def main():
             if query:
                 with st.spinner("Processing..."):
                     processed_query, is_crawl = preprocess_query(query)
-                    model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
+                    # Force Local DeepSeek if selected, otherwise use model factory logic
+                    if st.session_state.selected_model == "Local DeepSeek":
+                        model = model_factory.create_model("Local DeepSeek")
+                    else:
+                        model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
                     for attempt in range(2):
                         try:
@@ -265,7 +269,7 @@ def main():
                                 short_term_memory=st.session_state.short_term_memory,
                                 conn=conn,
                                 model=model,
-                                web_priority=st.session_state.web_priority,
+                                web_priority=st.session_state.web_priority if st.session_state.selected_model != "Local DeepSeek" else False,
                                 temperature=temperature,
                                 share_format=st.session_state.share_format
                             ))
@@ -406,7 +410,7 @@ def main():
         else:
             st.info("No queries recorded for today.")
 
-    # Add cyberpunk footer to all tabs
+    # Cyberpunk footer on all tabs
     st.markdown('<div class="cyberpunk-footer">Powered by <a href="https://www.villageofthousands.io/" target="_blank">https://www.villageofthousands.io/</a></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
