@@ -71,15 +71,16 @@ def analyze_response_with_r1(response, query, memory_context):
             f"Original Query: {query}\n"
             f"Initial Response: {response}\n"
             f"Memory Context: {memory_context}\n\n"
-            "Using chain-of-thought reasoning, analyze the initial response for accuracy and adherence to the query’s intent. "
-            "If the query requests a script, generate an improved version with detailed logging and error handling, incorporating memory context where relevant. "
-            "Return the refined response, enhancing creativity and completeness."
+            "Using chain-of-thought reasoning, analyze the initial response for accuracy, functionality, and adherence to the query’s intent. "
+            "If the query requests a script, generate an improved version with robust error handling, performance optimizations, and enhancements (e.g., alerts for high usage), "
+            "incorporating memory context (e.g., past log-related queries) for consistency and depth. "
+            "Return the refined script followed by a detailed analysis section."
         )
         r1_response = ollama.generate(model="deepseek-r1-7b", prompt=prompt)
         return r1_response["response"]
     except Exception as e:
         logger.error(f"R1 analysis failed: {str(e)}")
-        return response
+        return f"{response}\n\n**Analysis**: R1 analysis unavailable due to error: {str(e)}"
 
 def get_directory_contents():
     dir_path = os.getcwd()
@@ -238,6 +239,12 @@ def main():
                         st.session_state.telemetry_data.append(telemetry_entry)
                         update_memory(conn, processed_query, result, st.session_state.short_term_memory)
                         st.success(f"Completed in {result['latency']:.2f}s")
+                        # Save the script if requested
+                        if "save the script as 'system_monitor.py'" in processed_query.lower():
+                            with open("system_monitor.py", "w", encoding="utf-8") as f:
+                                script_content = refined_answer.split("**Analysis**")[0].strip() if "**Analysis**" in refined_answer else refined_answer
+                                f.write(script_content)
+                            st.info("Script saved as 'system_monitor.py'")
                     else:
                         st.error("Query failed. Check logs.")
             else:
