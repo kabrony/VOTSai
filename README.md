@@ -2,6 +2,8 @@
 
 **VOTSai** is a powerful, open-source, Streamlit-based platform designed for AI-driven research, enhanced with **Crawl4AI** for robust web crawling and local model support via Ollama’s `deepseek-r1:7b`. Explore the web, analyze code, and leverage memory with a sleek, user-friendly interface.
 
+![Powered by VillageOfThounds.io](https://img.shields.io/badge/Powered%20by-VillageOfThounds.io-blueviolet?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5Qb3dlcmVkIGJ5IFZpbGxhZ2VPZlRob3VuZHMuaW88L3RleHQ+PC9zdmc+)
+
 ---
 
 ## 🌟 Features
