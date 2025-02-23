@@ -5,7 +5,7 @@ import sys
 import sqlite3
 import subprocess
 import requests
-from collections import deque  # Ensure this is imported
+from collections import deque
 from core.models import ModelFactory
 from core.memory import init_memory_db, update_memory, get_relevant_memory
 from core.classifier import IntentClassifier
@@ -13,7 +13,7 @@ from handlers.query import orchestrate_query
 from utils.constants import SHORT_TERM_MAX
 from agents.codeAgent import analyze_code
 import logging
-import datetime
+import datetime  # Already imported correctly
 import pandas as pd
 import altair as alt
 from langchain.text_splitter import CharacterTextSplitter
@@ -21,43 +21,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-
-# ... (rest of imports and code unchanged until generate_daily_report)
-
-def generate_daily_report(conn: sqlite3.Connection, short_term_memory: deque) -> pd.DataFrame:
-    """Generate a daily report of queries from memory."""
-    today = datetime.datetime.now().date()
-    today_str = today.isoformat()
-    report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
-    
-    for entry in short_term_memory:
-        if "timestamp" not in entry:
-            entry["timestamp"] = datetime.now().isoformat()
-        if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
-            report_data["Timestamp"].append(entry["timestamp"])
-            report_data["Query"].append(entry["query"])
-            report_data["Result"].append(entry["answer"][:100] + "..." if len(entry["answer"]) > 100 else entry["answer"])
-            report_data["Model"].append(entry.get("model", "Unknown"))
-            report_data["Latency"].append(entry.get("latency", 0))
-            report_data["Input Tokens"].append(entry.get("input_tokens", 0))
-            report_data["Output Tokens"].append(entry.get("output_tokens", 0))
-    
-    try:
-        with conn:
-            c = conn.cursor()
-            c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
-            for row in c.fetchall():
-                report_data["Timestamp"].append(row[0])
-                report_data["Query"].append(row[1])
-                report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
-                report_data["Model"].append(row[3] or "Unknown")
-                report_data["Latency"].append(row[4] if row[4] is not None else 0)
-                report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
-                report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
-    except sqlite3.Error as e:
-        logger.error(f"Failed to fetch daily report data: {e}")
-    
-    return pd.DataFrame(report_data)
 
 # Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -116,7 +79,6 @@ def preprocess_query(query: str) -> tuple[str, bool]:
 def query_perplexity(question: str) -> str:
     """Query Perplexity API for additional context."""
     try:
-        # Updated endpoint per Perplexity API docs
         url = "https://api.perplexity.ai/chat/completions"
         headers = {"Authorization": f"Bearer {os.environ['PERPLEXITY_API_KEY']}", "Content-Type": "application/json"}
         payload = {
@@ -134,25 +96,20 @@ def query_perplexity(question: str) -> str:
 def setup_rag_system(conn: sqlite3.Connection) -> RetrievalQA:
     """Set up LangChain RAG with FAISS, DeepSeek R1, and SQLite memory."""
     try:
-        # Fetch memory data from SQLite
         c = conn.cursor()
         c.execute("SELECT query, answer FROM long_term_memory")
         memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()] or ["No prior memory data available."]
         logger.info(f"Fetched {len(memory_data)} memory entries for RAG.")
 
-        # Split documents into chunks
         text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         docs = text_splitter.create_documents(memory_data)
 
-        # Create FAISS vector store with DeepSeek embeddings via Ollama
         embeddings = OllamaEmbeddings(model="deepseek-r1:latest")
         vectorstore = FAISS.from_documents(docs, embeddings)
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-        # Initialize DeepSeek R1 LLM via Ollama
         llm = OllamaLLM(model="deepseek-r1:latest", temperature=0.1)
 
-        # Define prompt template
         prompt_template = PromptTemplate(
             input_variables=["context", "question"],
             template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
@@ -164,7 +121,6 @@ Question: {question}
 Response:"""
         )
 
-        # Create RAG chain
         rag_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
@@ -200,7 +156,7 @@ def update_database_schema(conn: sqlite3.Connection) -> None:
         logger.error(f"Failed to update database schema: {e}")
         st.error(f"Database schema update failed: {e}")
 
-def generate_daily_report(conn: sqlite3.Connection, short_term_memory: Deque) -> pd.DataFrame:
+def generate_daily_report(conn: sqlite3.Connection, short_term_memory: deque) -> pd.DataFrame:
     """Generate a daily report of queries from memory."""
     today = datetime.datetime.now().date()
     today_str = today.isoformat()
@@ -208,7 +164,7 @@ def generate_daily_report(conn: sqlite3.Connection, short_term_memory: Deque) ->
     
     for entry in short_term_memory:
         if "timestamp" not in entry:
-            entry["timestamp"] = datetime.now().isoformat()
+            entry["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
         if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
             report_data["Timestamp"].append(entry["timestamp"])
             report_data["Query"].append(entry["query"])
@@ -260,11 +216,10 @@ def main():
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
-    # Initialize LangChain RAG system once
     if st.session_state.rag_chain is None:
         st.session_state.rag_chain = setup_rag_system(conn)
 
-    # Cyberpunk neon footer CSS
+    # Cyberpunk neon footer CSS (moved outside tabs for visibility on all pages)
     footer_style = """
     <style>
     .cyberpunk-footer {
@@ -370,7 +325,7 @@ def main():
                         st.warning("Initial query execution encountered issues; displaying best effort response.")
                     st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, Actions: {actions}, Reasoning: {reasoning}")
                     result_entry = {
-                        "timestamp": datetime.datetime.now().isoformat(),
+                        "timestamp": datetime.datetime.now().isoformat(),  # Updated to datetime.datetime.now()
                         "query": processed_query,
                         "answer": result,
                         "model": model_name,
@@ -402,7 +357,7 @@ def main():
                 seen_queries = set()
                 for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):
                     if "timestamp" not in entry:
-                        entry["timestamp"] = datetime.now().isoformat()
+                        entry["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
                     query_key = (entry["query"], entry["timestamp"])
                     if query_key not in seen_queries:
                         seen_queries.add(query_key)
@@ -439,7 +394,7 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
-                    result["timestamp"] = datetime.now().isoformat()
+                    result["timestamp"] = datetime.datetime.now().isoformat()  # Updated to datetime.datetime.now()
                     result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
@@ -486,6 +441,7 @@ def main():
         else:
             st.info("No queries recorded for today.")
 
+    # Footer displayed on all tabs
     st.markdown('<div class="cyberpunk-footer">Powered by <a href="https://www.villageofthousands.io/" target="_blank">https://www.villageofthousands.io/</a></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
