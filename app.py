@@ -13,6 +13,7 @@ import logging
 import datetime
 import pandas as pd
 import altair as alt
+import sqlite3
 
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -63,6 +64,23 @@ def get_directory_contents():
     contents = os.listdir(dir_path)
     return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
 
+def update_database_schema(conn):
+    """Update the long_term_memory table schema to include missing columns."""
+    c = conn.cursor()
+    # Check existing columns
+    c.execute("PRAGMA table_info(long_term_memory)")
+    columns = [col[1] for col in c.fetchall()]
+    
+    # Add missing columns if they don’t exist
+    if "model" not in columns:
+        c.execute("ALTER TABLE long_term_memory ADD COLUMN model TEXT")
+    if "input_tokens" not in columns:
+        c.execute("ALTER TABLE long_term_memory ADD COLUMN input_tokens INTEGER")
+    if "output_tokens" not in columns:
+        c.execute("ALTER TABLE long_term_memory ADD COLUMN output_tokens INTEGER")
+    
+    conn.commit()
+
 def generate_daily_report(conn, short_term_memory):
     """Generate a daily report of queries and results."""
     today = datetime.datetime.now().date()
@@ -70,7 +88,7 @@ def generate_daily_report(conn, short_term_memory):
     
     # Short-term memory
     for entry in short_term_memory:
-        if "timestamp" not in entry:  # Add timestamp if missing
+        if "timestamp" not in entry:
             entry["timestamp"] = datetime.datetime.now().isoformat()
         entry_date = datetime.datetime.fromisoformat(entry["timestamp"]).date()
         if entry_date == today:
@@ -89,8 +107,8 @@ def generate_daily_report(conn, short_term_memory):
         report_data["Timestamp"].append(row[0])
         report_data["Query"].append(row[1])
         report_data["Result"].append(row[2][:50] + "..." if len(row[2]) > 50 else row[2])
-        report_data["Model"].append(row[3])
-        report_data["Latency"].append(row[4])
+        report_data["Model"].append(row[3] if row[3] is not None else "Unknown")
+        report_data["Latency"].append(row[4] if row[4] is not None else 0)
         report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
         report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
     
@@ -121,6 +139,7 @@ def main():
         return
 
     conn = init_memory_db("vots_agi_memory.db")
+    update_database_schema(conn)  # Ensure schema is up-to-date
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
@@ -141,7 +160,7 @@ def main():
     st.title("VOTSai Advanced Research Platform")
     st.markdown("Your AI-powered research companion.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Daily Report"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Telemetry & Report"])
 
     with tab1:
         query = st.text_area("Enter your research query:", height=150, 
@@ -175,43 +194,22 @@ def main():
                             st.error("Crawl failed. Ensure the URL is valid and accessible.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
-                        st.success(f"Completed in {result['latency']:.2f}s")
-                        # Add to telemetry
+                        result["timestamp"] = datetime.datetime.now().isoformat()
+                        result["model"] = result["model_name"]  # Ensure model is stored
                         telemetry_entry = {
-                            "timestamp": datetime.datetime.now().isoformat(),
+                            "timestamp": result["timestamp"],
                             "query": processed_query,
                             "latency": result["latency"],
-                            "input_tokens": result.get("input_tokens", 0),
-                            "output_tokens": result.get("output_tokens", 0)
+                            "model": result["model_name"]
                         }
                         st.session_state.telemetry_data.append(telemetry_entry)
                         update_memory(conn, processed_query, result, st.session_state.short_term_memory)
+                        st.success(f"Completed in {result['latency']:.2f}s")
                     else:
                         st.error("Query failed. Check logs for details.")
             else:
                 st.warning("Please enter a query.")
         
-        # Visual Telemetry
-        if st.session_state.telemetry_data:
-            st.subheader("Visual Telemetry")
-            df = pd.DataFrame(st.session_state.telemetry_data)
-            latency_chart = alt.Chart(df).mark_line().encode(
-                x="timestamp:T",
-                y="latency:Q",
-                tooltip=["timestamp", "query", "latency"]
-            ).properties(title="Query Latency Over Time")
-            token_chart = alt.Chart(df).mark_bar().encode(
-                x="timestamp:T",
-                y=alt.Y("input_tokens:Q", stack="zero"),
-                y2="output_tokens:Q",
-                color=alt.value("#FFAA00"),
-                tooltip=["timestamp", "query", "input_tokens", "output_tokens"]
-            ).properties(title="Token Usage")
-            st.altair_chart(latency_chart, use_container_width=True)
-            st.altair_chart(token_chart, use_container_width=True)
-        else:
-            st.info("No telemetry data available yet. Run some queries to see visualizations.")
-
         if st.checkbox("Show Recent Memory"):
             if st.session_state.short_term_memory:
                 st.subheader("Recent Queries")
@@ -250,6 +248,8 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
+                    result["timestamp"] = datetime.datetime.now().isoformat()
+                    result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
     with tab4:
@@ -270,19 +270,32 @@ def main():
             st.error("SYSTEM_DOCUMENTATION.md not found.")
 
     with tab5:
-        st.header("Daily Report from VOTSai Brain")
+        st.header("Telemetry & Report")
+        
+        # Visual Telemetry
+        st.subheader("Query Telemetry")
+        if st.session_state.telemetry_data:
+            df = pd.DataFrame(st.session_state.telemetry_data)
+            latency_chart = alt.Chart(df).mark_line().encode(
+                x="timestamp:T",
+                y="latency:Q",
+                color="model:N",
+                tooltip=["timestamp", "query", "latency", "model"]
+            ).properties(title="Query Latency Over Time").interactive()
+            st.altair_chart(latency_chart, use_container_width=True)
+        else:
+            st.info("No telemetry data available yet. Run some queries to see visualizations.")
+        
+        # Daily Report
+        st.subheader(f"Daily Report - {datetime.datetime.now().date()}")
         report_df = generate_daily_report(conn, st.session_state.short_term_memory)
         if not report_df.empty:
-            st.write(f"Report for {datetime.datetime.now().date()}:")
-            st.dataframe(report_df[["Timestamp", "Query", "Result", "Model", "Latency"]])
-            # Summary stats
-            st.write("**Summary Statistics:**")
+            st.dataframe(report_df)
+            st.write("**Summary:**")
             st.write(f"Total Queries: {len(report_df)}")
             st.write(f"Average Latency: {report_df['Latency'].mean():.2f}s")
-            st.write(f"Total Input Tokens: {report_df['Input Tokens'].sum()}")
-            st.write(f"Total Output Tokens: {report_df['Output Tokens'].sum()}")
         else:
-            st.info("No data available for today's report.")
+            st.info("No queries recorded for today.")
 
 if __name__ == "__main__":
     main()
