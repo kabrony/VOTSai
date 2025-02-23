@@ -1,8 +1,8 @@
 # 🚀🤖 VOTSai: Advanced AI Research Platform with Crawl4AI Integration
 
-**VOTSai** is a powerful, open-source, Streamlit-based platform designed for AI-driven research, enhanced with **Crawl4AI** for robust web crawling and local model support via Ollama’s `deepseek-r1:7b`. Explore the web, analyze code, and leverage memory with a sleek, user-friendly interface.
+[![Powered by VillageOfThousands.io](docs/assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
 
-![Powered by VillageOfThounds.io](https://img.shields.io/badge/Powered%20by-VillageOfThounds.io-blueviolet?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5Qb3dlcmVkIGJ5IFZpbGxhZ2VPZlRob3VuZHMuaW88L3RleHQ+PC9zdmc+)
+**VOTSai** is a powerful, open-source, Streamlit-based platform designed for AI-driven research, enhanced with **Crawl4AI** for robust web crawling and local model support via Ollama's `deepseek-r1:7b`. Explore the web, analyze code, and leverage memory with a sleek, user-friendly interface.
 
 ---
 
@@ -46,11 +46,10 @@ bash
 
     streamlit run app.py
 
-        Open http://localhost:8501 in your browser.
+    Open http://localhost:8501 in your browser.
 
 Configuration
 Set API keys in .env:
-plaintext
 
 PERPLEXITY_API_KEY=your_perplexity_key
 DEEPSEEK_API_KEY=your_deepseek_key
@@ -106,18 +105,14 @@ Feed directory contents to deepseek-r1:7b:
     Response: Tailored suggestions based on your codebase.
 
 📝 Documentation
-Quick Start
-Basic setup instructions (see above).
-Core Features
-Detailed guides for each capability (Crawling, Queries, Memory, etc.).
-Advanced Usage
-Tips for power users (custom timeouts, creativity tuning).
-API Reference
 
-    Coming Soon: Full code-level docs for developers.
+    Quick Start (#quick-start): Basic setup instructions (see above).
+    Core Features (#core-features): Detailed guides for each capability.
+    Advanced Usage (#advanced-usage): Tips for power users.
+    API Reference: Coming Soon - Full code-level docs for developers.
 
 🌐 Deployment
-Hosted on Streamlit Community Cloud:
+Hosted on Streamlit Community Cloud
 bash
 
 # Deploy Steps
@@ -128,8 +123,7 @@ bash
    - File: app.py
 3. Add Secrets: PERPLEXITY_API_KEY, DEEPSEEK_API_KEY
 
-    Note: SQLite memory is ephemeral on Cloud; use locally for persistence.
-
+Note: SQLite memory is ephemeral on Cloud; use locally for persistence.
 🤝 Contributing
 
     Star Us: Show support on GitHub!
@@ -137,4 +131,4 @@ bash
     Issues: Report problems or suggest ideas.
 
 🙌 Thanks
-Built with ❤️ by kabrony, powered by Crawl4AI’s awesome community and Ollama’s local model magic.
+Built with ❤️ by kabrony, powered by Crawl4AI's awesome community and Ollama's local model magic.
