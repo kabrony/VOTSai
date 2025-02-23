@@ -1,6 +1,7 @@
 import streamlit as st
 import asyncio
 import os
+import sqlite3
 import subprocess
 from collections import deque
 from core.models import ModelFactory
@@ -13,10 +14,22 @@ import logging
 import datetime
 import pandas as pd
 import altair as alt
-import sqlite3
 
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# Custom SQLite adapters and converters for datetime
+def adapt_datetime(dt):
+    """Convert Python datetime to ISO format string for SQLite."""
+    return dt.isoformat()
+
+def convert_datetime(val):
+    """Convert ISO format string from SQLite to Python datetime."""
+    return datetime.datetime.fromisoformat(val.decode('utf-8'))
+
+# Register custom adapters and converters
+sqlite3.register_adapter(datetime.datetime, adapt_datetime)
+sqlite3.register_converter("TIMESTAMP", convert_datetime)
 
 def load_env():
     env_file = ".env"
@@ -67,11 +80,9 @@ def get_directory_contents():
 def update_database_schema(conn):
     """Update the long_term_memory table schema to include all required columns."""
     c = conn.cursor()
-    # Check existing columns
     c.execute("PRAGMA table_info(long_term_memory)")
     columns = [col[1] for col in c.fetchall()]
     
-    # Add missing columns if they don’t exist
     if "model" not in columns:
         c.execute("ALTER TABLE long_term_memory ADD COLUMN model TEXT")
     if "latency" not in columns:
@@ -86,6 +97,7 @@ def update_database_schema(conn):
 def generate_daily_report(conn, short_term_memory):
     """Generate a daily report of queries and results."""
     today = datetime.datetime.now().date()
+    today_str = today.isoformat()  # e.g., '2025-02-23'
     report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
     
     # Short-term memory
@@ -104,7 +116,7 @@ def generate_daily_report(conn, short_term_memory):
     
     # Long-term memory from SQLite
     c = conn.cursor()
-    c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today,))
+    c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
     for row in c.fetchall():
         report_data["Timestamp"].append(row[0])
         report_data["Query"].append(row[1])
@@ -140,8 +152,8 @@ def main():
     if not ensure_playwright_installed():
         return
 
-    conn = init_memory_db("vots_agi_memory.db")
-    update_database_schema(conn)  # Ensure schema includes all columns
+    conn = init_memory_db("vots_agi_memory.db", detect_types=sqlite3.PARSE_DECLTYPES)  # Enable type detection
+    update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
@@ -196,10 +208,10 @@ def main():
                             st.error("Crawl failed. Ensure the URL is valid and accessible.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
-                        result["timestamp"] = datetime.datetime.now().isoformat()
+                        result["timestamp"] = datetime.datetime.now()
                         result["model"] = result["model_name"]
                         telemetry_entry = {
-                            "timestamp": result["timestamp"],
+                            "timestamp": result["timestamp"].isoformat(),
                             "query": processed_query,
                             "latency": result["latency"],
                             "model": result["model_name"]
@@ -250,7 +262,7 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
-                    result["timestamp"] = datetime.datetime.now().isoformat()
+                    result["timestamp"] = datetime.datetime.now()
                     result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
