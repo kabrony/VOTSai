@@ -65,7 +65,7 @@ def get_directory_contents():
     return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
 
 def update_database_schema(conn):
-    """Update the long_term_memory table schema to include missing columns."""
+    """Update the long_term_memory table schema to include all required columns."""
     c = conn.cursor()
     # Check existing columns
     c.execute("PRAGMA table_info(long_term_memory)")
@@ -74,6 +74,8 @@ def update_database_schema(conn):
     # Add missing columns if they don’t exist
     if "model" not in columns:
         c.execute("ALTER TABLE long_term_memory ADD COLUMN model TEXT")
+    if "latency" not in columns:
+        c.execute("ALTER TABLE long_term_memory ADD COLUMN latency REAL")
     if "input_tokens" not in columns:
         c.execute("ALTER TABLE long_term_memory ADD COLUMN input_tokens INTEGER")
     if "output_tokens" not in columns:
@@ -139,7 +141,7 @@ def main():
         return
 
     conn = init_memory_db("vots_agi_memory.db")
-    update_database_schema(conn)  # Ensure schema is up-to-date
+    update_database_schema(conn)  # Ensure schema includes all columns
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
@@ -195,7 +197,7 @@ def main():
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
                         result["timestamp"] = datetime.datetime.now().isoformat()
-                        result["model"] = result["model_name"]  # Ensure model is stored
+                        result["model"] = result["model_name"]
                         telemetry_entry = {
                             "timestamp": result["timestamp"],
                             "query": processed_query,
