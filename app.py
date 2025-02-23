@@ -219,7 +219,7 @@ def main():
     if st.session_state.rag_chain is None:
         st.session_state.rag_chain = setup_rag_system(conn)
 
-    # Cyberpunk neon footer CSS (moved outside tabs for visibility on all pages)
+    # Cyberpunk neon footer CSS
     footer_style = """
     <style>
     .cyberpunk-footer {
@@ -275,12 +275,42 @@ def main():
                                 perplexity_context = query_perplexity(processed_query.split(" [")[0])
                             else:
                                 perplexity_context = ""
-                            # Updated from .run to .invoke to resolve deprecation warning
-                            result = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
+                            # Handle invoke returning a dict
+                            result_dict = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
+                            result = result_dict.get('result', str(result_dict))  # Extract 'result' key or convert dict to string
                             latency = 0  # Placeholder; LangChain doesn't provide latency directly
                             model_name = "Local DeepSeek (RAG)"
                             actions = 1
                             reasoning = "RAG-based response with memory and optional web context"
+
+                            # Script execution logic
+                            if "execute" in processed_query.lower() and "```" in result:
+                                try:
+                                    # Extract code block (assumes markdown format with ```)
+                                    code_blocks = result.split("```")
+                                    if len(code_blocks) > 1:
+                                        script_content = code_blocks[1].strip()
+                                        script_name = "temp_script.py"
+                                        with open(script_name, "w", encoding="utf-8") as f:
+                                            f.write(script_content)
+                                        # Execute the script safely
+                                        process = subprocess.run(
+                                            [sys.executable, script_name],
+                                            capture_output=True,
+                                            text=True,
+                                            timeout=10  # Prevent infinite loops
+                                        )
+                                        execution_output = f"Script Output:\n{process.stdout}\nErrors (if any):\n{process.stderr}"
+                                        result += f"\n\n**Execution Result:**\n{execution_output}"
+                                        os.remove(script_name)  # Clean up
+                                    else:
+                                        result += "\n\n**Execution Result:** No valid code block found."
+                                except subprocess.TimeoutExpired:
+                                    result += "\n\n**Execution Result:** Script timed out after 10 seconds."
+                                except Exception as e:
+                                    result += f"\n\n**Execution Result:** Failed to execute script: {str(e)}"
+                                    logger.error(f"Script execution failed: {e}")
+
                         except Exception as e:
                             logger.error(f"RAG query failed: {e}")
                             result = f"Error: {e}"
