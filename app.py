@@ -20,8 +20,8 @@ def load_env():
         with open(env_file, "r") as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith("#"):  # Skip blank lines and comments
-                    if "=" in line:  # Ensure there's an equals sign
+                if line and not line.startswith("#"):
+                    if "=" in line:
                         key, value = line.split("=", 1)
                         os.environ[key] = value
                     else:
