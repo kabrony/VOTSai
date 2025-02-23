@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"app/page.tsx -> ../components/ChatWindow\":{\"id\":\"app/page.tsx -> ../components/ChatWindow\",\"files\":[\"static/chunks/_app-pages-browser_components_ChatWindow_tsx.js\"]}}"

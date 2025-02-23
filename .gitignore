@@ -1,0 +1,6 @@
+.env
+vots_agi_memory.db
+vots_agi.log
+votsai-backup-*.tar.gz
+__pycache__/
+*.pyc
