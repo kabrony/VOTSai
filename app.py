@@ -1,9 +1,10 @@
 import streamlit as st
 import asyncio
 import os
-import sys  # Added for sys.executable
+import sys
 import sqlite3
 import subprocess
+import requests
 from collections import deque
 from core.models import ModelFactory
 from core.memory import init_memory_db, update_memory, get_relevant_memory
@@ -16,6 +17,12 @@ import datetime
 import pandas as pd
 import altair as alt
 import ollama
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OllamaEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain_community.llms import Ollama
+from langchain.chains import RetrievalQA
 
 # Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -43,29 +50,19 @@ def load_env():
     return True
 
 def ensure_playwright_installed():
-    """Ensure Playwright module and browsers are installed, with fallback handling."""
+    """Verify Playwright is installed and browsers are available."""
     try:
-        import playwright  # Check if module is available
+        import playwright
     except ImportError:
-        st.error("Playwright module not found. Please ensure 'playwright' is in your requirements.txt and installed in the deployment environment.")
+        st.error("Playwright module not found. Ensure 'playwright>=1.50.0' is in requirements.txt and installed during deployment.")
         logger.error("Playwright module not installed in the environment.")
         return False
 
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
-    if not os.path.exists(playwright_dir) or not any(os.path.isdir(os.path.join(playwright_dir, d)) for d in os.listdir(playwright_dir)):
-        st.warning("Playwright browsers not found. Attempting to install now...")
-        try:
-            process = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, capture_output=True, text=True)
-            logger.info(f"Playwright install output: {process.stdout}")
-            st.success("Playwright browsers installed successfully!")
-        except subprocess.CalledProcessError as e:
-            st.error(f"Failed to install Playwright browsers: {e.stderr}")
-            logger.error(f"Playwright installation failed: {e.stderr}")
-            return False
-        except Exception as e:
-            st.error(f"Unexpected error installing Playwright: {str(e)}")
-            logger.error(f"Unexpected Playwright install error: {str(e)}")
-            return False
+    if not os.path.exists(playwright_dir) or not os.path.isdir(os.path.join(playwright_dir, "chromium")):
+        st.error("Playwright browsers not installed. Ensure 'python -m playwright install chromium' runs during deployment.")
+        logger.error("Playwright browsers not found in ~/.cache/ms-playwright.")
+        return False
     return True
 
 def preprocess_query(query):
@@ -81,35 +78,60 @@ def preprocess_query(query):
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
     return query, is_crawl
 
-def analyze_response_with_r1(response, query, memory_context, is_crawl=False):
-    """Analyze and refine response using DeepSeek R1 Latest via Ollama, tailored to query type."""
+def query_perplexity(question):
+    """Query Perplexity API for additional context."""
     try:
-        logger.info("Attempting R1 analysis with Ollama using deepseek-r1:latest")
-        if is_crawl:
-            prompt = (
-                f"Original Query: {query}\n"
-                f"Initial Response (Web Crawl Summary): {response}\n"
-                f"Memory Context: {memory_context}\n\n"
-                "Using chain-of-thought reasoning, analyze the initial web crawl summary for accuracy, completeness, and relevance to the query. "
-                "Provide a detailed, creative enhancement of the website’s purpose, structure, and potential features, "
-                "incorporating memory context (e.g., past web or system-related queries) for consistency and depth. "
-                "Return the enhanced description followed by a detailed analysis section."
-            )
-        else:
-            prompt = (
-                f"Original Query: {query}\n"
-                f"Initial Response: {response}\n"
-                f"Memory Context: {memory_context}\n\n"
-                "Using chain-of-thought reasoning, analyze the initial response for accuracy, functionality, and adherence to the query’s intent. "
-                "If the query requests a script, generate an improved version with robust error handling, performance optimizations, and enhancements (e.g., alerts for high usage), "
-                "incorporating memory context (e.g., past log-related queries) for consistency and depth. "
-                "Return the refined script followed by a detailed analysis section."
-            )
-        r1_response = ollama.generate(model="deepseek-r1:latest", prompt=prompt)
-        return r1_response["response"]
+        url = "https://api.perplexity.ai/query"  # Adjust to actual endpoint if different
+        headers = {"Authorization": f"Bearer {os.environ['PERPLEXITY_API_KEY']}"}
+        payload = {"query": question}
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        return response.json().get("answer", "No additional context from Perplexity.")
     except Exception as e:
-        logger.error(f"R1 analysis failed: {str(e)}")
-        return f"{response}\n\n**Analysis**: R1 analysis unavailable due to error: {str(e)}"
+        logger.error(f"Perplexity API query failed: {str(e)}")
+        return "Failed to fetch Perplexity context."
+
+def setup_rag_system(conn):
+    """Set up LangChain RAG with FAISS, DeepSeek R1, and SQLite memory."""
+    # Fetch memory data from SQLite
+    c = conn.cursor()
+    c.execute("SELECT query, answer FROM long_term_memory")
+    memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()]
+    if not memory_data:
+        memory_data = ["No prior memory data available."]
+
+    # Split documents into chunks
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    docs = text_splitter.create_documents(memory_data)
+
+    # Create FAISS vector store with DeepSeek embeddings via Ollama
+    embeddings = OllamaEmbeddings(model="deepseek-r1:latest")
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    # Initialize DeepSeek R1 LLM via Ollama
+    llm = Ollama(model="deepseek-r1:latest", temperature=0.1)
+
+    # Define prompt template
+    prompt_template = PromptTemplate(
+        input_variables=["context", "question"],
+        template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
+
+Context from memory: {context}
+
+Question: {question}
+
+Response:"""
+    )
+
+    # Create RAG chain
+    rag_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever,
+        chain_type_kwargs={"prompt": prompt_template}
+    )
+    return rag_chain
 
 def get_directory_contents():
     """Return formatted list of current directory contents."""
@@ -172,7 +194,7 @@ def generate_daily_report(conn, short_term_memory):
     return pd.DataFrame(report_data)
 
 def main():
-    """Main function for VOTSai application."""
+    """Main function for VOTSai application with LangChain RAG integration."""
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
     
     # Initialize session state
@@ -189,7 +211,9 @@ def main():
     if "creativity_level" not in st.session_state:
         st.session_state.creativity_level = 50
     if "telemetry_data" not in st.session_state:
-        st.session_state.telemetry_data = deque(maxlen=1000)  # Cap telemetry to prevent memory issues
+        st.session_state.telemetry_data = deque(maxlen=1000)
+    if "rag_chain" not in st.session_state:
+        st.session_state.rag_chain = None
 
     if not load_env():
         return
@@ -201,6 +225,10 @@ def main():
     update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
+
+    # Initialize LangChain RAG system once
+    if st.session_state.rag_chain is None:
+        st.session_state.rag_chain = setup_rag_system(conn)
 
     # Cyberpunk neon footer CSS
     footer_style = """
@@ -248,16 +276,17 @@ def main():
                 logger.error(f"Failed to clear long_term_memory: {str(e)}")
                 st.error(f"Failed to clear memory: {str(e)}")
             st.session_state.telemetry_data.clear()
+            st.session_state.rag_chain = None  # Reset RAG chain
             st.success("Memory and telemetry cleared!")
 
     st.title("VOTSai Advanced Research Platform")
-    st.markdown("Your AI-powered research companion.")
+    st.markdown("Your AI-powered research companion with LangChain RAG.")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Telemetry & Report"])
 
     with tab1:
         query = st.text_area("Enter your research query:", height=150, 
-                             placeholder="e.g., 'crawl https://example.com', 'explain quantum computing', or 'recall <keyword>'")
+                             placeholder="e.g., 'crawl https://example.com', 'generate a CPU monitoring script', or 'recall <keyword>'")
         col1, col2 = st.columns([3, 1])
         with col2:
             st.session_state.share_format = st.selectbox("Share Format", ["Text", "Markdown", "JSON"], 
@@ -265,69 +294,91 @@ def main():
         
         if st.button("Execute Query", key="query_btn"):
             if query:
-                with st.spinner("Processing..."):
+                with st.spinner("Processing with LangChain RAG..."):
                     processed_query, is_crawl = preprocess_query(query)
-                    # Force Local DeepSeek if selected, otherwise use model factory logic
                     if st.session_state.selected_model == "Local DeepSeek":
-                        model = model_factory.create_model("Local DeepSeek")
-                    else:
-                        model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
-                    temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
-                    for attempt in range(2):
+                        # Use LangChain RAG with DeepSeek R1
                         try:
-                            result = asyncio.run(orchestrate_query(
-                                query=processed_query,
-                                timeout=st.session_state.timeout,
-                                short_term_memory=st.session_state.short_term_memory,
-                                conn=conn,
-                                model=model,
-                                web_priority=st.session_state.web_priority if st.session_state.selected_model != "Local DeepSeek" else False,
-                                temperature=temperature,
-                                share_format=st.session_state.share_format
-                            ))
-                            break
+                            # Optional Perplexity context for crawl queries
+                            if is_crawl:
+                                perplexity_context = query_perplexity(processed_query.split(" [")[0])
+                            else:
+                                perplexity_context = ""
+                            result = st.session_state.rag_chain.run(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
+                            latency = 0  # Placeholder; LangChain doesn't provide latency directly
+                            model_name = "Local DeepSeek (RAG)"
+                            actions = 1
+                            reasoning = "RAG-based response with memory and optional web context"
                         except Exception as e:
-                            logger.error(f"Query attempt {attempt + 1} failed: {str(e)}")
-                            if attempt == 1:
-                                st.error(f"Query processing failed after retries: {str(e)}")
-                                result = {"final_answer": f"Error: {str(e)}", "model_name": st.session_state.selected_model, 
-                                          "latency": 0, "actions": 1, "model_reasoning": "Query failure"}
-                    if "final_answer" in result:
-                        memory_context = get_relevant_memory(conn, processed_query)
-                        refined_answer = analyze_response_with_r1(result["final_answer"], processed_query, memory_context, is_crawl=is_crawl)
-                        st.markdown(refined_answer)
-                        if result["final_answer"] == "No relevant memory found.":
-                            st.info("No matching memory entries found.")
-                        elif "failed" in result["final_answer"].lower():
-                            st.warning("Initial query execution encountered issues; displaying best effort response.")
-                        st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
-                                 f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
-                        result["timestamp"] = datetime.datetime.now().isoformat()
-                        result["model"] = result["model_name"]
-                        result["answer"] = refined_answer
-                        telemetry_entry = {
-                            "timestamp": result["timestamp"],
-                            "query": processed_query,
-                            "latency": result["latency"],
-                            "model": result["model_name"],
-                            "input_tokens": result.get("input_tokens", 0),
-                            "output_tokens": result.get("output_tokens", len(refined_answer.split()) if refined_answer else 0)
-                        }
-                        st.session_state.telemetry_data.append(telemetry_entry)
-                        update_memory(conn, processed_query, result, st.session_state.short_term_memory)
-                        if "save the script as" in processed_query.lower():
-                            try:
-                                script_name = processed_query.lower().split("save the script as")[1].split("'")[1]
-                                with open(script_name, "w", encoding="utf-8") as f:
-                                    script_content = refined_answer.split("**Analysis**")[0].strip() if "**Analysis**" in refined_answer else refined_answer
-                                    f.write(script_content)
-                                st.info(f"Script saved as '{script_name}'")
-                            except (IndexError, IOError) as e:
-                                st.error(f"Failed to save script: {str(e)}")
-                                logger.error(f"Script save failed: {str(e)}")
-                        st.success(f"Completed in {result['latency']:.2f}s")
+                            logger.error(f"RAG query failed: {str(e)}")
+                            result = f"Error: {str(e)}"
+                            latency = 0
+                            model_name = "Local DeepSeek (RAG)"
+                            actions = 1
+                            reasoning = "Query failure"
                     else:
-                        st.error("Query failed to produce a valid response. Check logs for details.")
+                        # Fallback to original orchestration
+                        model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
+                        temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
+                        for attempt in range(2):
+                            try:
+                                result_dict = asyncio.run(orchestrate_query(
+                                    query=processed_query,
+                                    timeout=st.session_state.timeout,
+                                    short_term_memory=st.session_state.short_term_memory,
+                                    conn=conn,
+                                    model=model,
+                                    web_priority=st.session_state.web_priority,
+                                    temperature=temperature,
+                                    share_format=st.session_state.share_format
+                                ))
+                                result = result_dict["final_answer"]
+                                latency = result_dict["latency"]
+                                model_name = result_dict["model_name"]
+                                actions = result_dict["actions"]
+                                reasoning = result_dict["model_reasoning"]
+                                break
+                            except Exception as e:
+                                logger.error(f"Query attempt {attempt + 1} failed: {str(e)}")
+                                if attempt == 1:
+                                    st.error(f"Query processing failed after retries: {str(e)}")
+                                    result = f"Error: {str(e)}"
+                                    latency = 0
+                                    model_name = st.session_state.selected_model
+                                    actions = 1
+                                    reasoning = "Query failure"
+
+                    st.markdown(result)
+                    if result == "No relevant memory found.":
+                        st.info("No matching memory entries found.")
+                    elif "failed" in result.lower():
+                        st.warning("Initial query execution encountered issues; displaying best effort response.")
+                    st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, "
+                             f"Actions: {actions}, Reasoning: {reasoning}")
+                    result_entry = {
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "query": processed_query,
+                        "answer": result,
+                        "model": model_name,
+                        "latency": latency,
+                        "actions": actions,
+                        "model_reasoning": reasoning,
+                        "input_tokens": 0,  # Placeholder; add if available from LangChain
+                        "output_tokens": len(result.split()) if result else 0
+                    }
+                    st.session_state.telemetry_data.append(result_entry)
+                    update_memory(conn, processed_query, result_entry, st.session_state.short_term_memory)
+                    if "save the script as" in processed_query.lower():
+                        try:
+                            script_name = processed_query.lower().split("save the script as")[1].split("'")[1]
+                            with open(script_name, "w", encoding="utf-8") as f:
+                                script_content = result.split("**Analysis**")[0].strip() if "**Analysis**" in result else result
+                                f.write(script_content)
+                            st.info(f"Script saved as '{script_name}'")
+                        except (IndexError, IOError) as e:
+                            st.error(f"Failed to save script: {str(e)}")
+                            logger.error(f"Script save failed: {str(e)}")
+                    st.success(f"Completed in {latency:.2f}s")
             else:
                 st.warning("Please enter a query.")
         
