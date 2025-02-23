@@ -103,7 +103,7 @@ def generate_daily_report(conn, short_term_memory):
         if entry_date == today:
             report_data["Timestamp"].append(entry["timestamp"])
             report_data["Query"].append(entry["query"])
-            report_data["Result"].append(entry["answer"][:50] + "..." if len(entry["answer"]) > 50 else entry["answer"])
+            report_data["Result"].append(entry["answer"][:100] + "..." if len(entry["answer"]) > 100 else entry["answer"])
             report_data["Model"].append(entry.get("model", "Unknown"))
             report_data["Latency"].append(entry.get("latency", 0))
             report_data["Input Tokens"].append(entry.get("input_tokens", 0))
@@ -115,7 +115,7 @@ def generate_daily_report(conn, short_term_memory):
     for row in c.fetchall():
         report_data["Timestamp"].append(row[0])
         report_data["Query"].append(row[1])
-        report_data["Result"].append(row[2][:50] + "..." if len(row[2]) > 50 else row[2])
+        report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
         report_data["Model"].append(row[3] if row[3] is not None else "Unknown")
         report_data["Latency"].append(row[4] if row[4] is not None else 0)
         report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
@@ -147,7 +147,7 @@ def main():
     if not ensure_playwright_installed():
         return
 
-    conn = init_memory_db("vots_agi_memory.db")  # No detect_types parameter
+    conn = init_memory_db("vots_agi_memory.db")  # Corrected: No detect_types
     update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
@@ -209,7 +209,9 @@ def main():
                             "timestamp": result["timestamp"].isoformat(),
                             "query": processed_query,
                             "latency": result["latency"],
-                            "model": result["model_name"]
+                            "model": result["model_name"],
+                            "input_tokens": result.get("input_tokens", 0),
+                            "output_tokens": result.get("output_tokens", 0)
                         }
                         st.session_state.telemetry_data.append(telemetry_entry)
                         update_memory(conn, processed_query, result, st.session_state.short_term_memory)
@@ -222,8 +224,12 @@ def main():
         if st.checkbox("Show Recent Memory"):
             if st.session_state.short_term_memory:
                 st.subheader("Recent Queries")
-                for i, entry in enumerate(st.session_state.short_term_memory, 1):
-                    st.write(f"{i}. **Query**: {entry['query']} | **Answer**: {entry['answer'][:50]}...")
+                seen_queries = set()  # Track unique queries to avoid duplicates
+                for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):  # Reverse to show latest first
+                    query_key = (entry["query"], entry["timestamp"])  # Unique by query and timestamp
+                    if query_key not in seen_queries:
+                        seen_queries.add(query_key)
+                        st.write(f"{i}. **Query**: {entry['query']} | **Answer**: {entry['answer'][:100] + '...' if len(entry['answer']) > 100 else entry['answer']} | **Timestamp**: {entry['timestamp']}")
             else:
                 st.info("Short-term memory is empty.")
 
@@ -286,10 +292,10 @@ def main():
         if st.session_state.telemetry_data:
             df = pd.DataFrame(st.session_state.telemetry_data)
             latency_chart = alt.Chart(df).mark_line().encode(
-                x="timestamp:T",
-                y="latency:Q",
+                x=alt.X("timestamp:T", title="Time"),
+                y=alt.Y("latency:Q", title="Latency (s)"),
                 color="model:N",
-                tooltip=["timestamp", "query", "latency", "model"]
+                tooltip=["timestamp", "query", "latency", "model", "input_tokens", "output_tokens"]
             ).properties(title="Query Latency Over Time").interactive()
             st.altair_chart(latency_chart, use_container_width=True)
         else:
@@ -303,6 +309,8 @@ def main():
             st.write("**Summary:**")
             st.write(f"Total Queries: {len(report_df)}")
             st.write(f"Average Latency: {report_df['Latency'].mean():.2f}s")
+            st.write(f"Total Input Tokens: {report_df['Input Tokens'].sum()}")
+            st.write(f"Total Output Tokens: {report_df['Output Tokens'].sum()}")
         else:
             st.info("No queries recorded for today.")
 
