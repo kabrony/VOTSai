@@ -71,15 +71,15 @@ def analyze_response_with_r1(response, query, memory_context):
             f"Original Query: {query}\n"
             f"Initial Response: {response}\n"
             f"Memory Context: {memory_context}\n\n"
-            "Using chain-of-thought reasoning, analyze the initial response for accuracy, creativity, and completeness relative to the query. "
-            "Refine it by adding vivid details, correcting inconsistencies, and expanding the response to better match the query’s scope. "
-            "Leverage memory context to enhance continuity and depth. Return the enhanced response."
+            "Using chain-of-thought reasoning, analyze the initial response for accuracy and adherence to the query’s intent. "
+            "If the query requests a script, generate an improved version with detailed logging and error handling, incorporating memory context where relevant. "
+            "Return the refined response, enhancing creativity and completeness."
         )
         r1_response = ollama.generate(model="deepseek-r1-7b", prompt=prompt)
         return r1_response["response"]
     except Exception as e:
         logger.error(f"R1 analysis failed: {str(e)}")
-        return response  # Fallback to original if R1 fails
+        return response
 
 def get_directory_contents():
     dir_path = os.getcwd()
