@@ -23,7 +23,6 @@ def adapt_datetime(dt):
     """Convert Python datetime to ISO format string for SQLite."""
     return dt.isoformat()
 
-# Register custom adapter globally
 sqlite3.register_adapter(datetime.datetime, adapt_datetime)
 
 def load_env():
@@ -64,6 +63,8 @@ def preprocess_query(query):
             query = f"crawl https://{url}"
             st.info(f"Added 'https://' to URL: {query}")
             logger.info(f"Preprocessed query: {query}")
+    # Add CoT and deep research instruction
+    query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
     return query
 
 def get_directory_contents():
@@ -92,10 +93,9 @@ def update_database_schema(conn):
 def generate_daily_report(conn, short_term_memory):
     """Generate a daily report of queries and results."""
     today = datetime.datetime.now().date()
-    today_str = today.isoformat()  # e.g., '2025-02-23'
+    today_str = today.isoformat()
     report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
     
-    # Short-term memory
     for entry in short_term_memory:
         if "timestamp" not in entry:
             entry["timestamp"] = datetime.datetime.now().isoformat()
@@ -109,7 +109,6 @@ def generate_daily_report(conn, short_term_memory):
             report_data["Input Tokens"].append(entry.get("input_tokens", 0))
             report_data["Output Tokens"].append(entry.get("output_tokens", 0))
     
-    # Long-term memory from SQLite
     c = conn.cursor()
     c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
     for row in c.fetchall():
@@ -209,11 +208,11 @@ def main():
                         st.markdown(result["final_answer"])
                         if result["final_answer"] == "No relevant memory found.":
                             st.info("No matching memory entries found. Try a different keyword or run some queries first.")
-                        elif "Crawl failed" in result["final_answer"]:
-                            st.error("Crawl failed. Ensure the URL is valid and accessible.")
+                        elif "failed" in result["final_answer"].lower():
+                            st.error("Query execution failed. Check logs or try a simpler query.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
-                        result["timestamp"] = datetime.datetime.now().isoformat()  # Ensure timestamp is always added
+                        result["timestamp"] = datetime.datetime.now().isoformat()
                         result["model"] = result["model_name"]
                         telemetry_entry = {
                             "timestamp": result["timestamp"],
@@ -236,7 +235,7 @@ def main():
                 st.subheader("Recent Queries")
                 seen_queries = set()
                 for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):
-                    if "timestamp" not in entry:  # Add timestamp if missing
+                    if "timestamp" not in entry:
                         entry["timestamp"] = datetime.datetime.now().isoformat()
                     query_key = (entry["query"], entry["timestamp"])
                     if query_key not in seen_queries:
