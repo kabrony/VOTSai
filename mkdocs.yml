@@ -1,0 +1,29 @@
+site_name: VOTSai Documentation
+site_description: 🚀🤖 VOTSai, Advanced AI Research Platform with Crawl4AI Integration
+site_url: https://kabrony.github.io/VOTSai
+repo_url: https://github.com/kabrony/VOTSai
+repo_name: kabrony/VOTSai
+theme:
+  name: material
+  palette:
+    primary: deep purple
+    accent: amber
+  features:
+    - content.code.copy
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Core Features:
+      - Web Crawling: core/crawling.md
+      - Multi-Model Queries: core/queries.md
+      - Memory System: core/memory.md
+      - Code Analysis: core/code_analysis.md
+      - Directory & Git: core/directory_git.md
+  - Advanced Usage:
+      - Custom Configuration: advanced/config.md
+      - Example Queries: advanced/examples.md
+  - Deployment: deployment.md
+  - Contributing: contributing.md
