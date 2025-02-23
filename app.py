@@ -10,6 +10,9 @@ from handlers.query import orchestrate_query
 from utils.constants import SHORT_TERM_MAX
 from agents.codeAgent import analyze_code
 import logging
+import datetime
+import pandas as pd
+import altair as alt
 
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -47,11 +50,11 @@ def preprocess_query(query):
     """Preprocess the query to ensure valid URL format for crawl commands."""
     query = query.strip()
     if query.lower().startswith("crawl "):
-        url = query[6:].strip()  # Extract URL after "crawl "
+        url = query[6:].strip()
         if not (url.startswith("http://") or url.startswith("https://") or url.startswith("file://") or url.startswith("raw:")):
-            # Assume HTTPS if no protocol is specified
             query = f"crawl https://{url}"
             st.info(f"Added 'https://' to URL: {query}")
+            logger.info(f"Preprocessed query: {query}")
     return query
 
 def get_directory_contents():
@@ -59,6 +62,39 @@ def get_directory_contents():
     dir_path = os.getcwd()
     contents = os.listdir(dir_path)
     return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
+
+def generate_daily_report(conn, short_term_memory):
+    """Generate a daily report of queries and results."""
+    today = datetime.datetime.now().date()
+    report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
+    
+    # Short-term memory
+    for entry in short_term_memory:
+        if "timestamp" not in entry:  # Add timestamp if missing
+            entry["timestamp"] = datetime.datetime.now().isoformat()
+        entry_date = datetime.datetime.fromisoformat(entry["timestamp"]).date()
+        if entry_date == today:
+            report_data["Timestamp"].append(entry["timestamp"])
+            report_data["Query"].append(entry["query"])
+            report_data["Result"].append(entry["answer"][:50] + "..." if len(entry["answer"]) > 50 else entry["answer"])
+            report_data["Model"].append(entry.get("model", "Unknown"))
+            report_data["Latency"].append(entry.get("latency", 0))
+            report_data["Input Tokens"].append(entry.get("input_tokens", 0))
+            report_data["Output Tokens"].append(entry.get("output_tokens", 0))
+    
+    # Long-term memory from SQLite
+    c = conn.cursor()
+    c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today,))
+    for row in c.fetchall():
+        report_data["Timestamp"].append(row[0])
+        report_data["Query"].append(row[1])
+        report_data["Result"].append(row[2][:50] + "..." if len(row[2]) > 50 else row[2])
+        report_data["Model"].append(row[3])
+        report_data["Latency"].append(row[4])
+        report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
+        report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
+    
+    return pd.DataFrame(report_data)
 
 def main():
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
@@ -75,6 +111,8 @@ def main():
         st.session_state.share_format = "Text"
     if "creativity_level" not in st.session_state:
         st.session_state.creativity_level = 50
+    if "telemetry_data" not in st.session_state:
+        st.session_state.telemetry_data = []
 
     if not load_env():
         return
@@ -97,12 +135,13 @@ def main():
             st.session_state.short_term_memory.clear()
             conn.execute("DELETE FROM long_term_memory")
             conn.commit()
-            st.success("Memory cleared!")
+            st.session_state.telemetry_data = []
+            st.success("Memory and telemetry cleared!")
 
     st.title("VOTSai Advanced Research Platform")
     st.markdown("Your AI-powered research companion.")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Daily Report"])
 
     with tab1:
         query = st.text_area("Enter your research query:", height=150, 
@@ -115,7 +154,6 @@ def main():
         if st.button("Execute Query", key="query_btn"):
             if query:
                 with st.spinner("Processing..."):
-                    # Preprocess the query to handle URL formatting
                     processed_query = preprocess_query(query)
                     model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
@@ -138,11 +176,42 @@ def main():
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
                         st.success(f"Completed in {result['latency']:.2f}s")
+                        # Add to telemetry
+                        telemetry_entry = {
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "query": processed_query,
+                            "latency": result["latency"],
+                            "input_tokens": result.get("input_tokens", 0),
+                            "output_tokens": result.get("output_tokens", 0)
+                        }
+                        st.session_state.telemetry_data.append(telemetry_entry)
+                        update_memory(conn, processed_query, result, st.session_state.short_term_memory)
                     else:
                         st.error("Query failed. Check logs for details.")
             else:
                 st.warning("Please enter a query.")
         
+        # Visual Telemetry
+        if st.session_state.telemetry_data:
+            st.subheader("Visual Telemetry")
+            df = pd.DataFrame(st.session_state.telemetry_data)
+            latency_chart = alt.Chart(df).mark_line().encode(
+                x="timestamp:T",
+                y="latency:Q",
+                tooltip=["timestamp", "query", "latency"]
+            ).properties(title="Query Latency Over Time")
+            token_chart = alt.Chart(df).mark_bar().encode(
+                x="timestamp:T",
+                y=alt.Y("input_tokens:Q", stack="zero"),
+                y2="output_tokens:Q",
+                color=alt.value("#FFAA00"),
+                tooltip=["timestamp", "query", "input_tokens", "output_tokens"]
+            ).properties(title="Token Usage")
+            st.altair_chart(latency_chart, use_container_width=True)
+            st.altair_chart(token_chart, use_container_width=True)
+        else:
+            st.info("No telemetry data available yet. Run some queries to see visualizations.")
+
         if st.checkbox("Show Recent Memory"):
             if st.session_state.short_term_memory:
                 st.subheader("Recent Queries")
@@ -182,8 +251,6 @@ def main():
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
-            else:
-                st.warning("Please enter a query.")
 
     with tab4:
         st.header("Documentation")
@@ -201,6 +268,21 @@ def main():
             st.markdown(system_doc_content, unsafe_allow_html=True)
         except FileNotFoundError:
             st.error("SYSTEM_DOCUMENTATION.md not found.")
+
+    with tab5:
+        st.header("Daily Report from VOTSai Brain")
+        report_df = generate_daily_report(conn, st.session_state.short_term_memory)
+        if not report_df.empty:
+            st.write(f"Report for {datetime.datetime.now().date()}:")
+            st.dataframe(report_df[["Timestamp", "Query", "Result", "Model", "Latency"]])
+            # Summary stats
+            st.write("**Summary Statistics:**")
+            st.write(f"Total Queries: {len(report_df)}")
+            st.write(f"Average Latency: {report_df['Latency'].mean():.2f}s")
+            st.write(f"Total Input Tokens: {report_df['Input Tokens'].sum()}")
+            st.write(f"Total Output Tokens: {report_df['Output Tokens'].sum()}")
+        else:
+            st.info("No data available for today's report.")
 
 if __name__ == "__main__":
     main()
