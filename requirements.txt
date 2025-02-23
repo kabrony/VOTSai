@@ -1,6 +1,7 @@
 # ~/VOTSai/requirements.txt
 streamlit>=1.32.0
 crawl4ai>=0.4.3
+playwright>=1.50.0  # Add this line
 openai>=1.12.0
 ollama>=0.1.6
 tenacity>=8.2.3
