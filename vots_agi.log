@@ -1,0 +1,30 @@
+2025-02-22 22:04:52,913 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:04:52,943 - INFO - Initialized memory database
+2025-02-22 22:04:57,304 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:04:57,306 - INFO - Initialized memory database
+2025-02-22 22:05:17,215 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:05:17,217 - INFO - Initialized memory database
+2025-02-22 22:05:17,338 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:05:17,342 - INFO - Initialized memory database
+2025-02-22 22:08:06,302 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:08:06,303 - INFO - Initialized memory database
+2025-02-22 22:08:10,102 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:08:10,103 - INFO - Initialized memory database
+2025-02-22 22:08:11,403 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:08:11,406 - INFO - Initialized memory database
+2025-02-22 22:08:38,983 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:08:38,985 - INFO - Initialized memory database
+2025-02-22 22:08:39,106 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:08:39,107 - INFO - Initialized memory database
+2025-02-22 22:08:46,772 - INFO - HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 200 OK"
+2025-02-22 22:08:51,526 - INFO - HTTP Request: POST https://api.perplexity.ai/chat/completions "HTTP/1.1 200 OK"
+2025-02-22 22:08:53,476 - ERROR - Orchestration failed with Perplexity API: name 'update_memory' is not defined
+2025-02-22 22:12:49,235 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:12:49,236 - INFO - Initialized memory database
+2025-02-22 22:13:13,050 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:13:13,053 - INFO - Initialized memory database
+2025-02-22 22:13:13,918 - WARNING - Skipping invalid .env line: --------------------------
+2025-02-22 22:13:13,920 - INFO - Initialized memory database
+2025-02-22 22:13:13,938 - ERROR - Crawl failed for polloriko.io: polloriko.io
+2025-02-22 22:13:13,939 - ERROR - Crawl query failed: polloriko.io
+2025-02-22 22:13:13,939 - ERROR - Memory update failed: 'answer'

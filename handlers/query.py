@@ -5,7 +5,7 @@ import sqlite3
 from time import time
 from typing import Dict, Any, Deque
 from core.models import AIModel
-from core.memory import get_relevant_memory, update_memory  # Added update_memory
+from core.memory import get_relevant_memory, update_memory  # Ensure both are imported
 from utils.helpers import format_response
 from handlers.web import crawl_url
 import logging
