@@ -19,9 +19,13 @@ def load_env():
     if os.path.exists(env_file):
         with open(env_file, "r") as f:
             for line in f:
-                if line.strip() and not line.startswith("#"):
-                    key, value = line.strip().split("=", 1)
-                    os.environ[key] = value
+                line = line.strip()
+                if line and not line.startswith("#"):  # Skip blank lines and comments
+                    if "=" in line:  # Ensure there's an equals sign
+                        key, value = line.split("=", 1)
+                        os.environ[key] = value
+                    else:
+                        logger.warning(f"Skipping invalid .env line: {line}")
     if "PERPLEXITY_API_KEY" not in os.environ or "DEEPSEEK_API_KEY" not in os.environ:
         st.error("⚠️ Missing API keys. Set PERPLEXITY_API_KEY and DEEPSEEK_API_KEY in .env.")
         return False
