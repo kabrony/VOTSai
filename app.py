@@ -5,7 +5,7 @@ import sys
 import sqlite3
 import subprocess
 import requests
-from collections import deque
+from collections import deque  # Ensure this is imported
 from core.models import ModelFactory
 from core.memory import init_memory_db, update_memory, get_relevant_memory
 from core.classifier import IntentClassifier
@@ -16,13 +16,48 @@ import logging
 import datetime
 import pandas as pd
 import altair as alt
-import ollama
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain.prompts import PromptTemplate
-from langchain_community.llms import Ollama
 from langchain.chains import RetrievalQA
+
+# ... (rest of imports and code unchanged until generate_daily_report)
+
+def generate_daily_report(conn: sqlite3.Connection, short_term_memory: deque) -> pd.DataFrame:
+    """Generate a daily report of queries from memory."""
+    today = datetime.datetime.now().date()
+    today_str = today.isoformat()
+    report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
+    
+    for entry in short_term_memory:
+        if "timestamp" not in entry:
+            entry["timestamp"] = datetime.now().isoformat()
+        if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
+            report_data["Timestamp"].append(entry["timestamp"])
+            report_data["Query"].append(entry["query"])
+            report_data["Result"].append(entry["answer"][:100] + "..." if len(entry["answer"]) > 100 else entry["answer"])
+            report_data["Model"].append(entry.get("model", "Unknown"))
+            report_data["Latency"].append(entry.get("latency", 0))
+            report_data["Input Tokens"].append(entry.get("input_tokens", 0))
+            report_data["Output Tokens"].append(entry.get("output_tokens", 0))
+    
+    try:
+        with conn:
+            c = conn.cursor()
+            c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
+            for row in c.fetchall():
+                report_data["Timestamp"].append(row[0])
+                report_data["Query"].append(row[1])
+                report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
+                report_data["Model"].append(row[3] or "Unknown")
+                report_data["Latency"].append(row[4] if row[4] is not None else 0)
+                report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
+                report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
+    except sqlite3.Error as e:
+        logger.error(f"Failed to fetch daily report data: {e}")
+    
+    return pd.DataFrame(report_data)
 
 # Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -34,7 +69,7 @@ def adapt_datetime(dt):
 
 sqlite3.register_adapter(datetime.datetime, adapt_datetime)
 
-def load_env():
+def load_env() -> bool:
     """Load environment variables from .env file."""
     env_file = ".env"
     if os.path.exists(env_file):
@@ -49,23 +84,23 @@ def load_env():
         return False
     return True
 
-def ensure_playwright_installed():
+def ensure_playwright_installed() -> bool:
     """Verify Playwright is installed and browsers are available."""
     try:
         import playwright
     except ImportError:
-        st.error("Playwright module not found. Ensure 'playwright>=1.50.0' is in requirements.txt and installed during deployment.")
-        logger.error("Playwright module not installed in the environment.")
+        st.error("Playwright module not found. Ensure 'playwright>=1.50.0' is in requirements.txt and installed.")
+        logger.error("Playwright module not installed.")
         return False
 
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     if not os.path.exists(playwright_dir) or not os.path.isdir(os.path.join(playwright_dir, "chromium")):
-        st.error("Playwright browsers not installed. Ensure 'python -m playwright install chromium' runs during deployment.")
+        st.error("Playwright browsers not installed. Run 'python -m playwright install chromium'.")
         logger.error("Playwright browsers not found in ~/.cache/ms-playwright.")
         return False
     return True
 
-def preprocess_query(query):
+def preprocess_query(query: str) -> tuple[str, bool]:
     """Preprocess query and detect crawl intent."""
     query = query.strip()
     is_crawl = query.lower().startswith("crawl ")
@@ -78,87 +113,94 @@ def preprocess_query(query):
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response up to the maximum token limit]"
     return query, is_crawl
 
-def query_perplexity(question):
+def query_perplexity(question: str) -> str:
     """Query Perplexity API for additional context."""
     try:
-        url = "https://api.perplexity.ai/query"  # Adjust to actual endpoint if different
-        headers = {"Authorization": f"Bearer {os.environ['PERPLEXITY_API_KEY']}"}
-        payload = {"query": question}
+        # Updated endpoint per Perplexity API docs
+        url = "https://api.perplexity.ai/chat/completions"
+        headers = {"Authorization": f"Bearer {os.environ['PERPLEXITY_API_KEY']}", "Content-Type": "application/json"}
+        payload = {
+            "model": "mistral-7b-instruct",
+            "messages": [{"role": "user", "content": question}],
+            "max_tokens": 1024
+        }
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        return response.json().get("answer", "No additional context from Perplexity.")
+        return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
         logger.error(f"Perplexity API query failed: {str(e)}")
-        return "Failed to fetch Perplexity context."
+        return f"Failed to fetch Perplexity context: {str(e)}"
 
-def setup_rag_system(conn):
+def setup_rag_system(conn: sqlite3.Connection) -> RetrievalQA:
     """Set up LangChain RAG with FAISS, DeepSeek R1, and SQLite memory."""
-    # Fetch memory data from SQLite
-    c = conn.cursor()
-    c.execute("SELECT query, answer FROM long_term_memory")
-    memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()]
-    if not memory_data:
-        memory_data = ["No prior memory data available."]
+    try:
+        # Fetch memory data from SQLite
+        c = conn.cursor()
+        c.execute("SELECT query, answer FROM long_term_memory")
+        memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()] or ["No prior memory data available."]
+        logger.info(f"Fetched {len(memory_data)} memory entries for RAG.")
 
-    # Split documents into chunks
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    docs = text_splitter.create_documents(memory_data)
+        # Split documents into chunks
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        docs = text_splitter.create_documents(memory_data)
 
-    # Create FAISS vector store with DeepSeek embeddings via Ollama
-    embeddings = OllamaEmbeddings(model="deepseek-r1:latest")
-    vectorstore = FAISS.from_documents(docs, embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        # Create FAISS vector store with DeepSeek embeddings via Ollama
+        embeddings = OllamaEmbeddings(model="deepseek-r1:latest")
+        vectorstore = FAISS.from_documents(docs, embeddings)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    # Initialize DeepSeek R1 LLM via Ollama
-    llm = Ollama(model="deepseek-r1:latest", temperature=0.1)
+        # Initialize DeepSeek R1 LLM via Ollama
+        llm = OllamaLLM(model="deepseek-r1:latest", temperature=0.1)
 
-    # Define prompt template
-    prompt_template = PromptTemplate(
-        input_variables=["context", "question"],
-        template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
+        # Define prompt template
+        prompt_template = PromptTemplate(
+            input_variables=["context", "question"],
+            template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
 
 Context from memory: {context}
 
 Question: {question}
 
 Response:"""
-    )
+        )
 
-    # Create RAG chain
-    rag_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        chain_type_kwargs={"prompt": prompt_template}
-    )
-    return rag_chain
-
-def get_directory_contents():
-    """Return formatted list of current directory contents."""
-    dir_path = os.getcwd()
-    try:
-        contents = os.listdir(dir_path)
-        return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(dir_path, item)) else "") for item in contents])
+        # Create RAG chain
+        rag_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=retriever,
+            chain_type_kwargs={"prompt": prompt_template}
+        )
+        return rag_chain
     except Exception as e:
-        logger.error(f"Failed to list directory contents: {str(e)}")
-        return "Error: Unable to list directory contents."
+        logger.error(f"RAG system setup failed: {e}")
+        raise
 
-def update_database_schema(conn):
+def get_directory_contents() -> str:
+    """Return formatted list of current directory contents."""
+    try:
+        contents = os.listdir(os.getcwd())
+        return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(os.getcwd(), item)) else "") for item in contents])
+    except Exception as e:
+        logger.error(f"Failed to list directory contents: {e}")
+        return f"Error: Unable to list directory contents: {e}"
+
+def update_database_schema(conn: sqlite3.Connection) -> None:
     """Update long_term_memory table schema if needed."""
     try:
-        c = conn.cursor()
-        c.execute("PRAGMA table_info(long_term_memory)")
-        columns = {col[1] for col in c.fetchall()}
-        
-        for col, col_type in [("model", "TEXT"), ("latency", "REAL"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER")]:
-            if col not in columns:
-                c.execute(f"ALTER TABLE long_term_memory ADD COLUMN {col} {col_type}")
-        conn.commit()
+        with conn:
+            c = conn.cursor()
+            c.execute("PRAGMA table_info(long_term_memory)")
+            columns = {col[1] for col in c.fetchall()}
+            for col, col_type in [("model", "TEXT"), ("latency", "REAL"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER")]:
+                if col not in columns:
+                    c.execute(f"ALTER TABLE long_term_memory ADD COLUMN {col} {col_type}")
+        logger.info("Database schema updated successfully.")
     except sqlite3.Error as e:
-        logger.error(f"Failed to update database schema: {str(e)}")
-        st.error(f"Database schema update failed: {str(e)}")
+        logger.error(f"Failed to update database schema: {e}")
+        st.error(f"Database schema update failed: {e}")
 
-def generate_daily_report(conn, short_term_memory):
+def generate_daily_report(conn: sqlite3.Connection, short_term_memory: Deque) -> pd.DataFrame:
     """Generate a daily report of queries from memory."""
     today = datetime.datetime.now().date()
     today_str = today.isoformat()
@@ -166,9 +208,8 @@ def generate_daily_report(conn, short_term_memory):
     
     for entry in short_term_memory:
         if "timestamp" not in entry:
-            entry["timestamp"] = datetime.datetime.now().isoformat()
-        entry_date = datetime.datetime.fromisoformat(entry["timestamp"]).date()
-        if entry_date == today:
+            entry["timestamp"] = datetime.now().isoformat()
+        if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
             report_data["Timestamp"].append(entry["timestamp"])
             report_data["Query"].append(entry["query"])
             report_data["Result"].append(entry["answer"][:100] + "..." if len(entry["answer"]) > 100 else entry["answer"])
@@ -178,18 +219,19 @@ def generate_daily_report(conn, short_term_memory):
             report_data["Output Tokens"].append(entry.get("output_tokens", 0))
     
     try:
-        c = conn.cursor()
-        c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
-        for row in c.fetchall():
-            report_data["Timestamp"].append(row[0])
-            report_data["Query"].append(row[1])
-            report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
-            report_data["Model"].append(row[3] if row[3] else "Unknown")
-            report_data["Latency"].append(row[4] if row[4] is not None else 0)
-            report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
-            report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
+        with conn:
+            c = conn.cursor()
+            c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
+            for row in c.fetchall():
+                report_data["Timestamp"].append(row[0])
+                report_data["Query"].append(row[1])
+                report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
+                report_data["Model"].append(row[3] or "Unknown")
+                report_data["Latency"].append(row[4] if row[4] is not None else 0)
+                report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
+                report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
     except sqlite3.Error as e:
-        logger.error(f"Failed to fetch daily report data: {str(e)}")
+        logger.error(f"Failed to fetch daily report data: {e}")
     
     return pd.DataFrame(report_data)
 
@@ -198,22 +240,14 @@ def main():
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
     
     # Initialize session state
-    if "short_term_memory" not in st.session_state:
-        st.session_state.short_term_memory = deque(maxlen=SHORT_TERM_MAX)
-    if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "Auto"
-    if "web_priority" not in st.session_state:
-        st.session_state.web_priority = True
-    if "timeout" not in st.session_state:
-        st.session_state.timeout = 60
-    if "share_format" not in st.session_state:
-        st.session_state.share_format = "Text"
-    if "creativity_level" not in st.session_state:
-        st.session_state.creativity_level = 50
-    if "telemetry_data" not in st.session_state:
-        st.session_state.telemetry_data = deque(maxlen=1000)
-    if "rag_chain" not in st.session_state:
-        st.session_state.rag_chain = None
+    st.session_state.setdefault("short_term_memory", deque(maxlen=SHORT_TERM_MAX))
+    st.session_state.setdefault("selected_model", "Auto")
+    st.session_state.setdefault("web_priority", True)
+    st.session_state.setdefault("timeout", 60)
+    st.session_state.setdefault("share_format", "Text")
+    st.session_state.setdefault("creativity_level", 50)
+    st.session_state.setdefault("telemetry_data", deque(maxlen=1000))
+    st.session_state.setdefault("rag_chain", None)
 
     if not load_env():
         return
@@ -234,28 +268,14 @@ def main():
     footer_style = """
     <style>
     .cyberpunk-footer {
-        position: fixed;
-        bottom: 10px;
-        left: 0;
-        width: 100%;
-        text-align: center;
-        font-family: 'Courier New', monospace;
-        font-size: 16px;
-        color: #00FF00;
+        position: fixed; bottom: 10px; left: 0; width: 100%; text-align: center;
+        font-family: 'Courier New', monospace; font-size: 16px; color: #00FF00;
         text-shadow: 0 0 5px #00FF00, 0 0 10px #00FF00, 0 0 20px #00FF00;
         animation: matrix 1.5s infinite alternate;
     }
-    @keyframes matrix {
-        from { opacity: 0.7; }
-        to { opacity: 1; }
-    }
-    .cyberpunk-footer a {
-        color: #00FF00;
-        text-decoration: none;
-    }
-    .cyberpunk-footer a:hover {
-        text-shadow: 0 0 10px #00FF00, 0 0 20px #00FF00, 0 0 30px #00FF00;
-    }
+    @keyframes matrix { from { opacity: 0.7; } to { opacity: 1; } }
+    .cyberpunk-footer a { color: #00FF00; text-decoration: none; }
+    .cyberpunk-footer a:hover { text-shadow: 0 0 10px #00FF00, 0 0 20px #00FF00, 0 0 30px #00FF00; }
     </style>
     """
     st.markdown(footer_style, unsafe_allow_html=True)
@@ -270,36 +290,32 @@ def main():
         if st.button("Clear Memory"):
             st.session_state.short_term_memory.clear()
             try:
-                conn.execute("DELETE FROM long_term_memory")
-                conn.commit()
+                with conn:
+                    conn.execute("DELETE FROM long_term_memory")
+                st.session_state.telemetry_data.clear()
+                st.session_state.rag_chain = None
+                st.success("Memory and telemetry cleared!")
             except sqlite3.Error as e:
-                logger.error(f"Failed to clear long_term_memory: {str(e)}")
-                st.error(f"Failed to clear memory: {str(e)}")
-            st.session_state.telemetry_data.clear()
-            st.session_state.rag_chain = None  # Reset RAG chain
-            st.success("Memory and telemetry cleared!")
+                logger.error(f"Failed to clear long_term_memory: {e}")
+                st.error(f"Failed to clear memory: {e}")
 
     st.title("VOTSai Advanced Research Platform")
     st.markdown("Your AI-powered research companion with LangChain RAG.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Telemetry & Report"])
-
-    with tab1:
-        query = st.text_area("Enter your research query:", height=150, 
-                             placeholder="e.g., 'crawl https://example.com', 'generate a CPU monitoring script', or 'recall <keyword>'")
+    tabs = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Telemetry & Report"])
+    
+    with tabs[0]:
+        query = st.text_area("Enter your research query:", height=150, placeholder="e.g., 'crawl https://example.com', 'generate a CPU monitoring script', or 'recall <keyword>'")
         col1, col2 = st.columns([3, 1])
         with col2:
-            st.session_state.share_format = st.selectbox("Share Format", ["Text", "Markdown", "JSON"], 
-                                                         index=["Text", "Markdown", "JSON"].index(st.session_state.share_format))
+            st.session_state.share_format = st.selectbox("Share Format", ["Text", "Markdown", "JSON"], index=["Text", "Markdown", "JSON"].index(st.session_state.share_format))
         
         if st.button("Execute Query", key="query_btn"):
             if query:
                 with st.spinner("Processing with LangChain RAG..."):
                     processed_query, is_crawl = preprocess_query(query)
                     if st.session_state.selected_model == "Local DeepSeek":
-                        # Use LangChain RAG with DeepSeek R1
                         try:
-                            # Optional Perplexity context for crawl queries
                             if is_crawl:
                                 perplexity_context = query_perplexity(processed_query.split(" [")[0])
                             else:
@@ -310,14 +326,13 @@ def main():
                             actions = 1
                             reasoning = "RAG-based response with memory and optional web context"
                         except Exception as e:
-                            logger.error(f"RAG query failed: {str(e)}")
-                            result = f"Error: {str(e)}"
+                            logger.error(f"RAG query failed: {e}")
+                            result = f"Error: {e}"
                             latency = 0
                             model_name = "Local DeepSeek (RAG)"
                             actions = 1
                             reasoning = "Query failure"
                     else:
-                        # Fallback to original orchestration
                         model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                         temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
                         for attempt in range(2):
@@ -339,10 +354,10 @@ def main():
                                 reasoning = result_dict["model_reasoning"]
                                 break
                             except Exception as e:
-                                logger.error(f"Query attempt {attempt + 1} failed: {str(e)}")
+                                logger.error(f"Query attempt {attempt + 1} failed: {e}")
                                 if attempt == 1:
-                                    st.error(f"Query processing failed after retries: {str(e)}")
-                                    result = f"Error: {str(e)}"
+                                    st.error(f"Query processing failed after retries: {e}")
+                                    result = f"Error: {e}"
                                     latency = 0
                                     model_name = st.session_state.selected_model
                                     actions = 1
@@ -353,8 +368,7 @@ def main():
                         st.info("No matching memory entries found.")
                     elif "failed" in result.lower():
                         st.warning("Initial query execution encountered issues; displaying best effort response.")
-                    st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, "
-                             f"Actions: {actions}, Reasoning: {reasoning}")
+                    st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, Actions: {actions}, Reasoning: {reasoning}")
                     result_entry = {
                         "timestamp": datetime.datetime.now().isoformat(),
                         "query": processed_query,
@@ -376,8 +390,8 @@ def main():
                                 f.write(script_content)
                             st.info(f"Script saved as '{script_name}'")
                         except (IndexError, IOError) as e:
-                            st.error(f"Failed to save script: {str(e)}")
-                            logger.error(f"Script save failed: {str(e)}")
+                            st.error(f"Failed to save script: {e}")
+                            logger.error(f"Script save failed: {e}")
                     st.success(f"Completed in {latency:.2f}s")
             else:
                 st.warning("Please enter a query.")
@@ -388,7 +402,7 @@ def main():
                 seen_queries = set()
                 for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):
                     if "timestamp" not in entry:
-                        entry["timestamp"] = datetime.datetime.now().isoformat()
+                        entry["timestamp"] = datetime.now().isoformat()
                     query_key = (entry["query"], entry["timestamp"])
                     if query_key not in seen_queries:
                         seen_queries.add(query_key)
@@ -396,7 +410,7 @@ def main():
             else:
                 st.info("Short-term memory is empty.")
 
-    with tab2:
+    with tabs[1]:
         code_input = st.text_area("Enter code to analyze:", height=150, placeholder="e.g., 'def add(a, b): return a + b'")
         if st.button("Analyze Code", key="code_btn"):
             if code_input:
@@ -406,13 +420,12 @@ def main():
             else:
                 st.warning("Please enter code to analyze.")
 
-    with tab3:
+    with tabs[2]:
         st.subheader("Directory Contents & Git Assistance")
         dir_contents = get_directory_contents()
         st.text_area("Current Directory (~VOTSai):", value=dir_contents, height=150, disabled=True)
         
-        git_query = st.text_input("Ask Local DeepSeek for Git or Improvement Help:", 
-                                  placeholder="e.g., 'suggest a commit message' or 'improve app.py'")
+        git_query = st.text_input("Ask Local DeepSeek for Git or Improvement Help:", placeholder="e.g., 'suggest a commit message' or 'improve app.py'")
         if st.button("Ask Local DeepSeek", key="git_btn"):
             if git_query:
                 with st.spinner("Processing with Local DeepSeek..."):
@@ -426,11 +439,11 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
-                    result["timestamp"] = datetime.datetime.now().isoformat()
+                    result["timestamp"] = datetime.now().isoformat()
                     result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
-    with tab4:
+    with tabs[3]:
         st.header("Documentation")
         try:
             with open("README.md", "r") as f:
@@ -445,7 +458,7 @@ def main():
         except FileNotFoundError:
             st.error("SYSTEM_DOCUMENTATION.md not found.")
 
-    with tab5:
+    with tabs[4]:
         st.header("Telemetry & Report")
         
         st.subheader("Query Telemetry")
@@ -473,7 +486,6 @@ def main():
         else:
             st.info("No queries recorded for today.")
 
-    # Cyberpunk footer on all tabs
     st.markdown('<div class="cyberpunk-footer">Powered by <a href="https://www.villageofthousands.io/" target="_blank">https://www.villageofthousands.io/</a></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
