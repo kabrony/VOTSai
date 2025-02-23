@@ -24,9 +24,35 @@ def load_env():
                     key, value = line.split("=", 1)
                     os.environ[key] = value
     if "PERPLEXITY_API_KEY" not in os.environ or "DEEPSEEK_API_KEY" not in os.environ:
-        st.error("⚠️ Missing API keys. Set PERPLEXITY_API_KEY and DEEPSEEK_API_KEY in .env.")
+        st.error("⚠️ Missing API keys. Set PERPLEXITY_API_KEY and DEEPSEEK_API_KEY in .env or Streamlit secrets.")
         return False
     return True
+
+def ensure_playwright_installed():
+    """Ensure Playwright browsers are installed."""
+    playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
+    if not os.path.exists(playwright_dir) or not any(os.path.isdir(os.path.join(playwright_dir, d)) for d in os.listdir(playwright_dir)):
+        st.warning("Playwright browsers not found. Installing now...")
+        try:
+            process = subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True, capture_output=True, text=True)
+            logger.info(f"Playwright install output: {process.stdout}")
+            st.success("Playwright browsers installed successfully!")
+        except subprocess.CalledProcessError as e:
+            st.error(f"Failed to install Playwright browsers: {e.stderr}")
+            logger.error(f"Playwright installation failed: {e.stderr}")
+            return False
+    return True
+
+def preprocess_query(query):
+    """Preprocess the query to ensure valid URL format for crawl commands."""
+    query = query.strip()
+    if query.lower().startswith("crawl "):
+        url = query[6:].strip()  # Extract URL after "crawl "
+        if not (url.startswith("http://") or url.startswith("https://") or url.startswith("file://") or url.startswith("raw:")):
+            # Assume HTTPS if no protocol is specified
+            query = f"crawl https://{url}"
+            st.info(f"Added 'https://' to URL: {query}")
+    return query
 
 def get_directory_contents():
     """Return contents of ~/VOTSai directory as a string."""
@@ -51,6 +77,9 @@ def main():
         st.session_state.creativity_level = 50
 
     if not load_env():
+        return
+
+    if not ensure_playwright_installed():
         return
 
     conn = init_memory_db("vots_agi_memory.db")
@@ -86,10 +115,12 @@ def main():
         if st.button("Execute Query", key="query_btn"):
             if query:
                 with st.spinner("Processing..."):
-                    model = model_factory.select_model(query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
+                    # Preprocess the query to handle URL formatting
+                    processed_query = preprocess_query(query)
+                    model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
                     result = asyncio.run(orchestrate_query(
-                        query=query,
+                        query=processed_query,
                         timeout=st.session_state.timeout,
                         short_term_memory=st.session_state.short_term_memory,
                         conn=conn,
@@ -102,6 +133,8 @@ def main():
                         st.markdown(result["final_answer"])
                         if result["final_answer"] == "No relevant memory found.":
                             st.info("No matching memory entries found. Try a different keyword or run some queries first.")
+                        elif "Crawl failed" in result["final_answer"]:
+                            st.error("Crawl failed. Ensure the URL is valid and accessible.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
                         st.success(f"Completed in {result['latency']:.2f}s")
@@ -110,7 +143,6 @@ def main():
             else:
                 st.warning("Please enter a query.")
         
-        # Optional: Show recent memory entries
         if st.checkbox("Show Recent Memory"):
             if st.session_state.short_term_memory:
                 st.subheader("Recent Queries")
