@@ -147,7 +147,7 @@ def main():
     if not ensure_playwright_installed():
         return
 
-    conn = init_memory_db("vots_agi_memory.db")  # Corrected: No detect_types
+    conn = init_memory_db("vots_agi_memory.db")
     update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
@@ -185,16 +185,26 @@ def main():
                     processed_query = preprocess_query(query)
                     model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
                     temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
-                    result = asyncio.run(orchestrate_query(
-                        query=processed_query,
-                        timeout=st.session_state.timeout,
-                        short_term_memory=st.session_state.short_term_memory,
-                        conn=conn,
-                        model=model,
-                        web_priority=st.session_state.web_priority,
-                        temperature=temperature,
-                        share_format=st.session_state.share_format
-                    ))
+                    for attempt in range(2):  # Retry once if API fails
+                        try:
+                            result = asyncio.run(orchestrate_query(
+                                query=processed_query,
+                                timeout=st.session_state.timeout,
+                                short_term_memory=st.session_state.short_term_memory,
+                                conn=conn,
+                                model=model,
+                                web_priority=st.session_state.web_priority,
+                                temperature=temperature,
+                                share_format=st.session_state.share_format
+                            ))
+                            break
+                        except Exception as e:
+                            logger.error(f"Query attempt {attempt + 1} failed: {str(e)}")
+                            if attempt == 1:
+                                st.error(f"Failed to process query after retries: {str(e)}")
+                                result = {"final_answer": f"Error: Query processing failed - {str(e)}", 
+                                          "model_name": st.session_state.selected_model, 
+                                          "latency": 0, "actions": 1, "model_reasoning": "Query failure"}
                     if "final_answer" in result:
                         st.markdown(result["final_answer"])
                         if result["final_answer"] == "No relevant memory found.":
@@ -203,10 +213,10 @@ def main():
                             st.error("Crawl failed. Ensure the URL is valid and accessible.")
                         st.write(f"**Metadata**: Model: {result['model_name']}, Latency: {result['latency']:.2f}s, "
                                  f"Actions: {result['actions']}, Reasoning: {result['model_reasoning']}")
-                        result["timestamp"] = datetime.datetime.now()
+                        result["timestamp"] = datetime.datetime.now().isoformat()  # Ensure timestamp is always added
                         result["model"] = result["model_name"]
                         telemetry_entry = {
-                            "timestamp": result["timestamp"].isoformat(),
+                            "timestamp": result["timestamp"],
                             "query": processed_query,
                             "latency": result["latency"],
                             "model": result["model_name"],
@@ -224,9 +234,11 @@ def main():
         if st.checkbox("Show Recent Memory"):
             if st.session_state.short_term_memory:
                 st.subheader("Recent Queries")
-                seen_queries = set()  # Track unique queries to avoid duplicates
-                for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):  # Reverse to show latest first
-                    query_key = (entry["query"], entry["timestamp"])  # Unique by query and timestamp
+                seen_queries = set()
+                for i, entry in enumerate(reversed(st.session_state.short_term_memory), 1):
+                    if "timestamp" not in entry:  # Add timestamp if missing
+                        entry["timestamp"] = datetime.datetime.now().isoformat()
+                    query_key = (entry["query"], entry["timestamp"])
                     if query_key not in seen_queries:
                         seen_queries.add(query_key)
                         st.write(f"{i}. **Query**: {entry['query']} | **Answer**: {entry['answer'][:100] + '...' if len(entry['answer']) > 100 else entry['answer']} | **Timestamp**: {entry['timestamp']}")
@@ -263,7 +275,7 @@ def main():
                     ))
                     st.markdown(f"**Local DeepSeek Response:**\n{result['answer']}")
                     st.write(f"**Metadata**: Latency: {result.get('latency', 0):.2f}s, Input Tokens: {result['input_tokens']}, Output Tokens: {result['output_tokens']}")
-                    result["timestamp"] = datetime.datetime.now()
+                    result["timestamp"] = datetime.datetime.now().isoformat()
                     result["model"] = "Local DeepSeek"
                     update_memory(conn, git_query, result, st.session_state.short_term_memory)
 
@@ -287,7 +299,6 @@ def main():
     with tab5:
         st.header("Telemetry & Report")
         
-        # Visual Telemetry
         st.subheader("Query Telemetry")
         if st.session_state.telemetry_data:
             df = pd.DataFrame(st.session_state.telemetry_data)
@@ -301,7 +312,6 @@ def main():
         else:
             st.info("No telemetry data available yet. Run some queries to see visualizations.")
         
-        # Daily Report
         st.subheader(f"Daily Report - {datetime.datetime.now().date()}")
         report_df = generate_daily_report(conn, st.session_state.short_term_memory)
         if not report_df.empty:
