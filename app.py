@@ -18,18 +18,13 @@ import altair as alt
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Custom SQLite adapters and converters for datetime
+# Custom SQLite adapter for datetime to avoid deprecation warning
 def adapt_datetime(dt):
     """Convert Python datetime to ISO format string for SQLite."""
     return dt.isoformat()
 
-def convert_datetime(val):
-    """Convert ISO format string from SQLite to Python datetime."""
-    return datetime.datetime.fromisoformat(val.decode('utf-8'))
-
-# Register custom adapters and converters
+# Register custom adapter globally
 sqlite3.register_adapter(datetime.datetime, adapt_datetime)
-sqlite3.register_converter("TIMESTAMP", convert_datetime)
 
 def load_env():
     env_file = ".env"
@@ -152,7 +147,7 @@ def main():
     if not ensure_playwright_installed():
         return
 
-    conn = init_memory_db("vots_agi_memory.db", detect_types=sqlite3.PARSE_DECLTYPES)  # Enable type detection
+    conn = init_memory_db("vots_agi_memory.db")  # No detect_types parameter
     update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
