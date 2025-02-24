@@ -1,5 +1,4 @@
 import streamlit as st
-import asyncio
 import os
 import sys
 import sqlite3
@@ -14,10 +13,13 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.llms import HuggingFaceHub
-import requests
+from langchain_huggingface import HuggingFaceEmbeddings  # Updated import
+from langchain_ollama import OllamaLLM  # Updated import
 import markdown
+import warnings
+
+# Suppress torch.classes RuntimeError warning
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="Tried to instantiate class")
 
 # Assuming these are in separate modules (create if missing)
 from core.models import ModelFactory
@@ -38,7 +40,7 @@ def adapt_datetime(dt: datetime) -> str:
 sqlite3.register_adapter(datetime, adapt_datetime)
 
 def load_env() -> bool:
-    """Load environment variables from .env file."""
+    """Load environment variables from .env file (optional for local use)."""
     env_file = ".env"
     if os.path.exists(env_file):
         with open(env_file, "r") as f:
@@ -47,11 +49,7 @@ def load_env() -> bool:
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
                     os.environ[key] = value
-    required_keys = ["PERPLEXITY_API_KEY", "DEEPSEEK_API_KEY", "HUGGINGFACE_API_TOKEN"]
-    missing = [key for key in required_keys if key not in os.environ]
-    if missing:
-        st.error(f"⚠️ Missing API keys: {', '.join(missing)}. Set them in .env or Streamlit secrets.")
-        return False
+    # No API keys required for local model, but keep for Perplexity fallback if needed
     return True
 
 def ensure_playwright_installed() -> bool:
@@ -82,25 +80,8 @@ def preprocess_query(query: str) -> Tuple[str, bool]:
     query = f"{query} [Use chain-of-thought reasoning and deep research style to generate a detailed, creative response]"
     return query, is_crawl
 
-def query_perplexity(question: str) -> str:
-    """Query Perplexity API for additional context."""
-    try:
-        url = "https://api.perplexity.ai/chat/completions"
-        headers = {"Authorization": f"Bearer {os.environ['PERPLEXITY_API_KEY']}", "Content-Type": "application/json"}
-        payload = {
-            "model": "mistral-7b-instruct",
-            "messages": [{"role": "user", "content": question}],
-            "max_tokens": 1024
-        }
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.error(f"Perplexity API query failed: {str(e)}")
-        return f"Failed to fetch Perplexity context: {str(e)}"
-
 def setup_rag_system(conn: sqlite3.Connection, batch_size: int = 100) -> Optional[RetrievalQA]:
-    """Set up LangChain RAG with FAISS and SQLite memory using batch processing."""
+    """Set up LangChain RAG with FAISS and SQLite memory using local Ollama model."""
     try:
         with st.spinner("Initializing RAG system..."):
             c = conn.cursor()
@@ -121,11 +102,12 @@ def setup_rag_system(conn: sqlite3.Connection, batch_size: int = 100) -> Optiona
                     vectorstore.add_documents(batch)
 
             retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-            llm = HuggingFaceHub(
-                repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                huggingfacehub_api_token=os.environ["HUGGINGFACE_API_TOKEN"],
-                model_kwargs={"temperature": 0.1}
-            )
+            try:
+                llm = OllamaLLM(model="deepseek-r1-distill-qwen-7b:q2_k", temperature=0.1)
+            except Exception as e:
+                logger.error(f"Failed to connect to Ollama: {e}")
+                st.error(f"Couldn’t connect to Ollama. Ensure it’s running with 'ollama run hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K'")
+                return None
 
             prompt_template = PromptTemplate(
                 input_variables=["context", "question"],
@@ -144,11 +126,11 @@ Response:"""
                 retriever=retriever,
                 chain_type_kwargs={"prompt": prompt_template}
             )
-        st.success("RAG system initialized successfully!")
+        st.success("RAG system initialized successfully with local model!")
         return rag_chain
     except Exception as e:
         logger.error(f"RAG system setup failed: {e}")
-        st.error(f"Failed to initialize RAG system: {e}")
+        st.error(f"Failed to initialize RAG system: {e}. Ensure Ollama is running with deepseek-r1-distill-qwen-7b:q2_k.")
         return None
 
 def get_directory_contents() -> str:
@@ -211,14 +193,14 @@ def generate_daily_report(conn: sqlite3.Connection, short_term_memory: Deque[Dic
     return pd.DataFrame(report_data)
 
 def main():
-    """Main function for VOTSai application with enhanced LangChain RAG integration."""
+    """Main function for VOTSai application with local DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K."""
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
 
     # Initialize session state
     if "short_term_memory" not in st.session_state:
         st.session_state.short_term_memory = deque(maxlen=SHORT_TERM_MAX)
     if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "Auto"
+        st.session_state.selected_model = "Local DeepSeek-R1-Distill-Qwen-7B"
     if "web_priority" not in st.session_state:
         st.session_state.web_priority = True
     if "timeout" not in st.session_state:
@@ -243,7 +225,7 @@ def main():
     if st.session_state.rag_chain is None:
         st.session_state.rag_chain = setup_rag_system(conn)
 
-    # Cyberpunk footer with VillageOfThousands branding
+    # Cyberpunk footer with VillageOfThousands image
     footer_style = """
     <style>
     .cyberpunk-footer {
@@ -253,20 +235,17 @@ def main():
         animation: matrix 1.5s infinite alternate;
     }
     @keyframes matrix { from { opacity: 0.7; } to { opacity: 1; } }
-    .cyberpunk-footer a { color: #4DD0E1; text-decoration: none; }
-    .cyberpunk-footer a:hover { text-shadow: 0 0 10px #4DD0E1, 0 0 20px #4DD0E1, 0 0 30px #4DD0E1; }
     </style>
     <div class="cyberpunk-footer">
-        Powered by <a href="https://VillageOfThousands.io" target="_blank">VillageOfThousands.io</a>
+        <img src="powered_by_villageofthousands.gif" alt="Powered by VillageOfThousands.io" style="max-height: 50px;">
     </div>
     """
     st.markdown(footer_style, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header("⚙️ AI Configuration")
-        model_options = ["Auto", "Perplexity API", "DeepSeek API", "Cloud LLM"]
-        st.session_state.selected_model = st.selectbox("Model Selection", model_options, index=model_options.index(st.session_state.selected_model))
-        st.session_state.web_priority = st.toggle("🌐 Web Integration", value=st.session_state.web_priority)
+        model_options = ["Local DeepSeek-R1-Distill-Qwen-7B"]  # Simplified to local only
+        st.session_state.selected_model = st.selectbox("Model Selection", model_options, index=0)
         st.session_state.creativity_level = st.slider("🧠 Creativity Level", 0, 100, st.session_state.creativity_level)
         st.session_state.timeout = st.slider("Timeout (s)", 10, 120, st.session_state.timeout)
         if st.button("Clear Memory"):
@@ -287,22 +266,18 @@ def main():
     tabs = st.tabs(["Query", "Code Analysis", "Directory & Git", "Documentation", "Telemetry & Report"])
     
     with tabs[0]:
-        query = st.text_area("Enter your research query:", height=150, placeholder="e.g., 'crawl https://example.com', 'generate a CPU monitoring script', or 'recall <keyword>'")
+        query = st.text_area("Enter your research query:", height=150, placeholder="e.g., 'generate a CPU monitoring script', or 'recall <keyword>'")
         col1, col2 = st.columns([3, 1])
         with col2:
             st.session_state.share_format = st.selectbox("Share Format", ["Text", "Markdown", "JSON"], index=["Text", "Markdown", "JSON"].index(st.session_state.share_format))
         
         if st.button("Execute Query", key="query_btn"):
             if query:
-                with st.spinner("Processing with LangChain RAG..."):
+                with st.spinner("Processing with DeepSeek-R1-Distill-Qwen-7B..."):
                     processed_query, is_crawl = preprocess_query(query)
                     if st.session_state.rag_chain:
                         try:
-                            if is_crawl and st.session_state.web_priority:
-                                perplexity_context = query_perplexity(processed_query.split(" [")[0])
-                            else:
-                                perplexity_context = ""
-                            result_dict = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
+                            result_dict = st.session_state.rag_chain.invoke(processed_query)
                             result = result_dict.get('result', str(result_dict))
                             if "execute" in processed_query.lower() and "```" in result:
                                 try:
@@ -329,11 +304,11 @@ def main():
                                     result += f"\n\n**Execution Result:** Failed to execute script: {str(e)}"
                             st.markdown(result)
                         except Exception as e:
-                            logger.error(f"RAG query failed: {e}")
-                            st.warning("Initial query execution encountered issues; displaying best effort response.")
+                            logger.error(f"Query failed: {e}")
+                            st.warning("Query execution encountered issues; displaying best effort response.")
                             st.error(f"Query failed: {e}")
                     else:
-                        st.error("RAG system not initialized. Please check setup.")
+                        st.error("RAG system not initialized. Ensure Ollama is running with deepseek-r1-distill-qwen-7b:q2_k.")
 
     with tabs[1]:
         code_input = st.text_area("Paste code to analyze:", height=150, placeholder="e.g., Python script")
@@ -361,7 +336,102 @@ def main():
 
     with tabs[3]:
         st.subheader("Documentation")
-        st.markdown("### VOTSai Documentation\n\nYour AI-powered research companion.\n\n- **Query**: Ask questions or crawl websites.\n- **Code Analysis**: Analyze and optimize scripts.\n- **Directory & Git**: View project structure and Git status.\n- **Telemetry**: Monitor query performance.")
+        documentation_content = """
+        ### 🚀🤖 VOTSai: Advanced AI Research Platform with Crawl4AI Integration
+
+        VOTSai is a powerful, open-source, Streamlit-based platform designed for AI-driven research, enhanced with **Crawl4AI** for robust web crawling and powered locally by the **DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K** model via Ollama. Explore code, analyze projects, and leverage memory with a sleek, user-friendly interface.
+
+        #### 🌟 Features
+        - **🔍 Robust Web Crawling**: Powered by Crawl4AI, crawl static and dynamic pages with JavaScript rendering (optional with Perplexity API).
+        - **🧠 Local Model Power**: Uses `DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K` for advanced reasoning and code analysis.
+        - **📚 Memory System**: Persistent SQLite database for long-term memory, paired with short-term deque tracking.
+        - **💻 Code Analysis**: DeepSeek-powered code review and improvement suggestions.
+        - **📂 Directory Insights**: Local model access to project files for Git and optimization help.
+        - **📜 Structured Output**: Responses in Text, Markdown, or JSON with shareable links.
+
+        #### 📦 Quick Start
+        ##### Prerequisites
+        - Python 3.12+
+        - Git
+        - Virtual Environment (venv)
+        - Ollama (for local `DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K`)
+
+        ##### Installation
+        ```bash
+        # Clone the repo
+        git clone https://github.com/kabrony/VOTSai.git
+        cd VOTSai
+
+        # Setup virtual environment
+        python3 -m venv venv
+        source venv/bin/activate  # On Windows, use `venv\\Scripts\\activate`
+
+        # Install dependencies
+        pip install -r requirements.txt
+
+        # Install Playwright for Crawl4AI (optional for web crawling)
+        python -m playwright install chromium
+        ```
+
+        ##### Running Locally
+        1. Start Ollama with the local model:
+        ```bash
+        ollama pull hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K
+        ollama run hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K
+        ```
+        2. Launch VOTSai:
+        ```bash
+        streamlit run app.py
+        ```
+        3. Open `http://localhost:8501` in your browser.
+
+        ##### Configuration (Optional)
+        For Perplexity API fallback (web crawling), set API keys in `.env`:
+        ```bash
+        PERPLEXITY_API_KEY=your_perplexity_key
+        ```
+
+        #### 🛠️ Core Features
+        ##### Local Model Queries
+        - **General/Technical**: Use `DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K` (e.g., "explain quantum computing", "generate a script").
+
+        ##### Memory Management
+        - **Short-Term**: Tracks last 15 queries in-memory.
+        - **Long-Term**: Stores queries and answers in `vots_agi_memory.db`.
+        - **Recall**: `recall <query>` to retrieve past results.
+
+        ##### Code Analysis
+        - **Input**: `def add(a, b): return a + b`
+        - **Output**: Suggestions for optimization or error handling.
+
+        ##### Directory & Git Assistance
+        - **Directory View**: See `~/VOTSai/` contents.
+        - **Git Help**: Query "suggest a commit message" for tailored suggestions.
+
+        #### 📈 Advanced Usage
+        ##### Customizing Queries
+        - **Timeout**: Adjust query timeout (10-120s) in the sidebar.
+        - **Creativity**: Tune model temperature (0-100) for creative responses.
+
+        ##### Example Queries
+        - **General**: `explain quantum computing`
+        - **Recall**: `recall quantum`
+        - **Git**: `suggest a commit message for adding crawl4ai`
+        - **Code**: `create script to check project tree md and readme`
+
+        ##### Local Model Enhancements
+        - **Query**: `improve app.py`
+        - **Response**: Tailored suggestions based on your codebase.
+
+        #### 🤝 Contributing
+        - **Star Us**: Show support on GitHub!
+        - **Fork & PR**: Add features, fix bugs, or enhance docs.
+        - **Issues**: Report problems or suggest ideas.
+
+        #### 🙌 Thanks
+        Built with ❤️ by kabrony, powered by Crawl4AI's awesome community and DeepSeek's advanced models.
+        """
+        st.markdown(documentation_content, unsafe_allow_html=True)
 
     with tabs[4]:
         st.subheader("Telemetry & Daily Report")
