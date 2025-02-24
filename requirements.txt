@@ -2,3 +2,4 @@ streamlit
 langchain-ollama
 langchain-community
 faiss-cpu
+sentence-transformers
