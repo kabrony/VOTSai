@@ -1,3 +1,4 @@
+from calendar import month_name
 import streamlit as st
 import asyncio
 import os
@@ -6,32 +7,36 @@ import sqlite3
 import subprocess
 import requests
 from collections import deque
+from datetime import datetime
+import pandas as pd
+import altair as alt
+import logging
+from typing import Tuple, Optional, Deque, Dict, Any
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA
+from langchain.embeddings import HuggingFaceEmbeddings  # Cloud-compatible embeddings
+from langchain_ollama import OllamaLLM
+import markdown
+
+# Modular imports (assuming these are in separate files)
 from core.models import ModelFactory
 from core.memory import init_memory_db, update_memory, get_relevant_memory
 from core.classifier import IntentClassifier
 from handlers.query import orchestrate_query
 from utils.constants import SHORT_TERM_MAX
 from agents.codeAgent import analyze_code
-import logging
-import datetime
-import pandas as pd
-import altair as alt
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_ollama import OllamaEmbeddings, OllamaLLM
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-import markdown
 
 # Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # SQLite datetime adapter
-def adapt_datetime(dt):
+def adapt_datetime(dt: datetime) -> str:
     return dt.isoformat()
 
-sqlite3.register_adapter(datetime.datetime, adapt_datetime)
+sqlite3.register_adapter(datetime, adapt_datetime)
 
 def load_env() -> bool:
     """Load environment variables from .env file."""
@@ -56,15 +61,14 @@ def ensure_playwright_installed() -> bool:
         st.error("Playwright module not found. Ensure 'playwright>=1.50.0' is in requirements.txt and installed.")
         logger.error("Playwright module not installed.")
         return False
-
     playwright_dir = os.path.expanduser("~/.cache/ms-playwright")
     if not os.path.exists(playwright_dir) or not os.path.isdir(os.path.join(playwright_dir, "chromium")):
         st.error("Playwright browsers not installed. Run 'python -m playwright install chromium'.")
-        logger.error("Playwright browsers not found in ~/.cache/ms-playwright.")
+        logger.error("Playwright browsers not found.")
         return False
     return True
 
-def preprocess_query(query: str) -> tuple[str, bool]:
+def preprocess_query(query: str) -> Tuple[str, bool]:
     """Preprocess query and detect crawl intent."""
     query = query.strip()
     is_crawl = query.lower().startswith("crawl ")
@@ -94,147 +98,85 @@ def query_perplexity(question: str) -> str:
         logger.error(f"Perplexity API query failed: {str(e)}")
         return f"Failed to fetch Perplexity context: {str(e)}"
 
-def setup_rag_system(conn: sqlite3.Connection) -> RetrievalQA:
-    """Set up LangChain RAG with FAISS, DeepSeek R1, and SQLite memory."""
+def setup_rag_system(conn: sqlite3.Connection, batch_size: int = 100) -> Optional[RetrievalQA]:
+    """Set up LangChain RAG with FAISS, DeepSeek R1, and SQLite memory using batch processing."""
     try:
-        c = conn.cursor()
-        c.execute("SELECT query, answer FROM long_term_memory")
-        memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()] or ["No prior memory data available."]
-        logger.info(f"Fetched {len(memory_data)} memory entries for RAG.")
+        with st.spinner("Setting up RAG system..."):
+            c = conn.cursor()
+            c.execute("SELECT query, answer FROM long_term_memory")
+            memory_data = [f"Query: {row[0]}\nAnswer: {row[1]}" for row in c.fetchall()] or ["No prior memory data available."]
+            logger.info(f"Fetched {len(memory_data)} memory entries for RAG.")
 
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        docs = text_splitter.create_documents(memory_data)
+            text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+            docs = text_splitter.create_documents(memory_data)
 
-        embeddings = OllamaEmbeddings(model="hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K")
-        vectorstore = FAISS.from_documents(docs, embeddings)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            # Use HuggingFaceEmbeddings for cloud compatibility
+            embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            vectorstore = None
+            for i in range(0, len(docs), batch_size):
+                batch = docs[i:i + batch_size]
+                if vectorstore is None:
+                    vectorstore = FAISS.from_documents(batch, embeddings)
+                else:
+                    vectorstore.add_documents(batch)
 
-        llm = OllamaLLM(model="hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K", temperature=0.1)
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+            llm = OllamaLLM(model="hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K", temperature=0.1)
 
-        prompt_template = PromptTemplate(
-            input_variables=["context", "question"],
-            template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
+            prompt_template = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""Using chain-of-thought reasoning, generate a detailed, creative response to the following question based on the provided context from memory data and additional research if applicable. If the question involves a web crawl, enhance the description with insights about the website’s purpose, structure, and features. If it involves code, generate an improved script with robust error handling and performance optimizations. Include a detailed analysis section.
 
 Context from memory: {context}
 
 Question: {question}
 
 Response:"""
-        )
+            )
 
-        rag_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=retriever,
-            chain_type_kwargs={"prompt": prompt_template}
-        )
+            rag_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+                chain_type_kwargs={"prompt": prompt_template}
+            )
         return rag_chain
     except Exception as e:
         logger.error(f"RAG system setup failed: {e}")
-        raise
-
-def get_directory_contents() -> str:
-    """Return formatted list of current directory contents."""
-    try:
-        contents = os.listdir(os.getcwd())
-        return "\n".join([f"- {item}" + (" (dir)" if os.path.isdir(os.path.join(os.getcwd(), item)) else "") for item in contents])
-    except Exception as e:
-        logger.error(f"Failed to list directory contents: {e}")
-        return f"Error: Unable to list directory contents: {e}"
-
-def update_database_schema(conn: sqlite3.Connection) -> None:
-    """Update long_term_memory table schema if needed."""
-    try:
-        with conn:
-            c = conn.cursor()
-            c.execute("PRAGMA table_info(long_term_memory)")
-            columns = {col[1] for col in c.fetchall()}
-            for col, col_type in [("model", "TEXT"), ("latency", "REAL"), ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER")]:
-                if col not in columns:
-                    c.execute(f"ALTER TABLE long_term_memory ADD COLUMN {col} {col_type}")
-        logger.info("Database schema updated successfully.")
-    except sqlite3.Error as e:
-        logger.error(f"Failed to update database schema: {e}")
-        st.error(f"Database schema update failed: {e}")
-
-def generate_daily_report(conn: sqlite3.Connection, short_term_memory: deque) -> pd.DataFrame:
-    """Generate a daily report of queries from memory."""
-    today = datetime.datetime.now().date()
-    today_str = today.isoformat()
-    report_data = {"Timestamp": [], "Query": [], "Result": [], "Model": [], "Latency": [], "Input Tokens": [], "Output Tokens": []}
-    
-    for entry in short_term_memory:
-        if "timestamp" not in entry:
-            entry["timestamp"] = datetime.datetime.now().isoformat()
-        if datetime.datetime.fromisoformat(entry["timestamp"]).date() == today:
-            report_data["Timestamp"].append(entry["timestamp"])
-            report_data["Query"].append(entry["query"])
-            report_data["Result"].append(entry["answer"][:100] + "..." if len(entry["answer"]) > 100 else entry["answer"])
-            report_data["Model"].append(entry.get("model", "Unknown"))
-            report_data["Latency"].append(entry.get("latency", 0))
-            report_data["Input Tokens"].append(entry.get("input_tokens", 0))
-            report_data["Output Tokens"].append(entry.get("output_tokens", 0))
-    
-    try:
-        with conn:
-            c = conn.cursor()
-            c.execute("SELECT timestamp, query, answer, model, latency, input_tokens, output_tokens FROM long_term_memory WHERE DATE(timestamp) = ?", (today_str,))
-            for row in c.fetchall():
-                report_data["Timestamp"].append(row[0])
-                report_data["Query"].append(row[1])
-                report_data["Result"].append(row[2][:100] + "..." if len(row[2]) > 100 else row[2])
-                report_data["Model"].append(row[3] or "Unknown")
-                report_data["Latency"].append(row[4] if row[4] is not None else 0)
-                report_data["Input Tokens"].append(row[5] if row[5] is not None else 0)
-                report_data["Output Tokens"].append(row[6] if row[6] is not None else 0)
-    except sqlite3.Error as e:
-        logger.error(f"Failed to fetch daily report data: {e}")
-    
-    return pd.DataFrame(report_data)
+        st.error(f"Failed to initialize RAG system: {e}")
+        return None
 
 def main():
-    """Main function for VOTSai application with LangChain RAG integration."""
+    """Main function for VOTSai application with enhanced LangChain RAG integration."""
     st.set_page_config(page_title="VOTSai V1.4.4", layout="wide", initial_sidebar_state="expanded", page_icon="🧠")
-    
+
     # Initialize session state
-    st.session_state.setdefault("short_term_memory", deque(maxlen=SHORT_TERM_MAX))
-    st.session_state.setdefault("selected_model", "Auto")
-    st.session_state.setdefault("web_priority", True)
-    st.session_state.setdefault("timeout", 60)
-    st.session_state.setdefault("share_format", "Text")
-    st.session_state.setdefault("creativity_level", 50)
-    st.session_state.setdefault("telemetry_data", deque(maxlen=1000))
-    st.session_state.setdefault("rag_chain", None)
+    if "short_term_memory" not in st.session_state:
+        st.session_state.short_term_memory = deque(maxlen=SHORT_TERM_MAX)
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = "Auto"
+    if "web_priority" not in st.session_state:
+        st.session_state.web_priority = True
+    if "timeout" not in st.session_state:
+        st.session_state.timeout = 60
+    if "share_format" not in st.session_state:
+        st.session_state.share_format = "Text"
+    if "creativity_level" not in st.session_state:
+        st.session_state.creativity_level = 50
+    if "telemetry_data" not in st.session_state:
+        st.session_state.telemetry_data = deque(maxlen=1000)
+    if "rag_chain" not in st.session_state:
+        st.session_state.rag_chain = None
 
-    if not load_env():
-        return
-
-    if not ensure_playwright_installed():
+    if not load_env() or not ensure_playwright_installed():
         return
 
     conn = init_memory_db("vots_agi_memory.db")
-    update_database_schema(conn)
     model_factory = ModelFactory()
     intent_classifier = IntentClassifier()
 
     if st.session_state.rag_chain is None:
         st.session_state.rag_chain = setup_rag_system(conn)
-
-    # Cyberpunk neon footer CSS (for all pages except Documentation tab)
-    footer_style = """
-    <style>
-    .cyberpunk-footer {
-        position: fixed; bottom: 10px; left: 0; width: 100%; text-align: center;
-        font-family: 'Courier New', monospace; font-size: 16px; color: #26A69A;  /* Updated to Crawl4AI teal */
-        text-shadow: 0 0 5px #26A69A, 0 0 10px #26A69A, 0 0 20px #26A69A;
-        animation: matrix 1.5s infinite alternate;
-    }
-    @keyframes matrix { from { opacity: 0.7; } to { opacity: 1; } }
-    .cyberpunk-footer a { color: #4DD0E1; text-decoration: none; }  /* Updated to Crawl4AI light teal */
-    .cyberpunk-footer a:hover { text-shadow: 0 0 10px #4DD0E1, 0 0 20px #4DD0E1, 0 0 30px #4DD0E1; }
-    </style>
-    """
-    st.markdown(footer_style, unsafe_allow_html=True)
 
     with st.sidebar:
         st.header("⚙️ AI Configuration")
@@ -244,15 +186,15 @@ def main():
         st.session_state.creativity_level = st.slider("🧠 Creativity Level", 0, 100, st.session_state.creativity_level)
         st.session_state.timeout = st.slider("Timeout (s)", 10, 120, st.session_state.timeout)
         if st.button("Clear Memory"):
-            st.session_state.short_term_memory.clear()
             try:
                 with conn:
                     conn.execute("DELETE FROM long_term_memory")
+                st.session_state.short_term_memory.clear()
                 st.session_state.telemetry_data.clear()
                 st.session_state.rag_chain = None
                 st.success("Memory and telemetry cleared!")
             except sqlite3.Error as e:
-                logger.error(f"Failed to clear long_term_memory: {e}")
+                logger.error(f"Failed to clear memory: {e}")
                 st.error(f"Failed to clear memory: {e}")
 
     st.title("VOTSai Advanced Research Platform")
@@ -270,7 +212,7 @@ def main():
             if query:
                 with st.spinner("Processing with LangChain RAG..."):
                     processed_query, is_crawl = preprocess_query(query)
-                    if st.session_state.selected_model == "Local DeepSeek":
+                    if st.session_state.rag_chain:
                         try:
                             if is_crawl:
                                 perplexity_context = query_perplexity(processed_query.split(" [")[0])
@@ -278,79 +220,16 @@ def main():
                                 perplexity_context = ""
                             result_dict = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
                             result = result_dict.get('result', str(result_dict))
-                            latency = 0  # LangChain doesn't provide latency directly
-                            model_name = "Local DeepSeek (RAG)"
-                            actions = 1
-                            reasoning = "RAG-based response with memory and optional web context"
-
-                            if "execute" in processed_query.lower() and "```" in result:
-                                try:
-                                    code_blocks = result.split("```")
-                                    if len(code_blocks) > 1:
-                                        script_content = code_blocks[1].strip()
-                                        script_name = "temp_script.py"
-                                        with open(script_name, "w", encoding="utf-8") as f:
-                                            f.write(script_content)
-                                        process = subprocess.run(
-                                            [sys.executable, script_name],
-                                            capture_output=True,
-                                            text=True,
-                                            timeout=10
-                                        )
-                                        execution_output = f"Script Output:\n{process.stdout}\nErrors (if any):\n{process.stderr}"
-                                        result += f"\n\n**Execution Result:**\n{execution_output}"
-                                        os.remove(script_name)
-                                    else:
-                                        result += "\n\n**Execution Result:** No valid code block found."
-                                except subprocess.TimeoutExpired:
-                                    result += "\n\n**Execution Result:** Script timed out after 10 seconds."
-                                except Exception as e:
-                                    result += f"\n\n**Execution Result:** Failed to execute script: {str(e)}"
-                                    logger.error(f"Script execution failed: {e}")
+                            st.markdown(result)
                         except Exception as e:
                             logger.error(f"RAG query failed: {e}")
-                            result = f"Error: {e}"
-                            latency = 0
-                            model_name = "Local DeepSeek (RAG)"
-                            actions = 1
-                            reasoning = "Query failure"
+                            st.error(f"Query failed: {e}")
                     else:
-                        model = model_factory.select_model(processed_query, st.session_state.selected_model, st.session_state.web_priority, intent_classifier)
-                        temperature = 0.1 + (st.session_state.creativity_level / 100) * 0.9
-                        for attempt in range(2):
-                            try:
-                                result_dict = asyncio.run(orchestrate_query(
-                                    query=processed_query,
-                                    timeout=st.session_state.timeout,
-                                    short_term_memory=st.session_state.short_term_memory,
-                                    conn=conn,
-                                    model=model,
-                                    web_priority=st.session_state.web_priority,
-                                    temperature=temperature,
-                                    share_format=st.session_state.share_format
-                                ))
-                                result = result_dict["final_answer"]
-                                latency = result_dict["latency"]
-                                model_name = result_dict["model_name"]
-                                actions = result_dict["actions"]
-                                reasoning = result_dict["model_reasoning"]
-                                break
-                            except Exception as e:
-                                logger.error(f"Query attempt {attempt + 1} failed: {e}")
-                                if attempt == 1:
-                                    st.error(f"Query processing failed after retries: {e}")
-                                    result = f"Error: {e}"
-                                    latency = 0
-                                    model_name = st.session_state.selected_model
-                                    actions = 1
-                                    reasoning = "Query failure"
+                        st.error("RAG system not initialized.")
 
-                    st.markdown(result)
-                    if result == "No relevant memory found.":
-                        st.info("No matching memory entries found.")
-                    elif "failed" in result.lower():
-                        st.warning("Initial query execution encountered issues; displaying best effort response.")
-                    st.write(f"**Metadata**: Model: {model_name}, Latency: {latency:.2f}s, Actions: {actions}, Reasoning: {reasoning}")
+if __name__ == "__main__":
+    main()              st.warning("Initial query execution encountered issues; displaying best effort response.")
+                    st.write(f"**Metadata**: Model: {month_name}, Latency: {latency:.2f}s, Actions: {actions}, Reasoning: {reasoning}")
                     result_entry = {
                         "timestamp": datetime.datetime.now().isoformat(),
                         "query": processed_query,
