@@ -6,3 +6,4 @@ __pycache__/
 *.tar.gz
 *.gguf
 unsloth_compiled_cache/
+.env
