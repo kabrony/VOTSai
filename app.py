@@ -21,6 +21,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
+import markdown
 
 # Logging setup
 logging.basicConfig(filename="vots_agi.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -104,11 +105,11 @@ def setup_rag_system(conn: sqlite3.Connection) -> RetrievalQA:
         text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         docs = text_splitter.create_documents(memory_data)
 
-        embeddings = OllamaEmbeddings(model="deepseek-r1:latest")
+        embeddings = OllamaEmbeddings(model="hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K")
         vectorstore = FAISS.from_documents(docs, embeddings)
         retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-        llm = OllamaLLM(model="deepseek-r1:latest", temperature=0.1)
+        llm = OllamaLLM(model="hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K", temperature=0.1)
 
         prompt_template = PromptTemplate(
             input_variables=["context", "question"],
@@ -219,18 +220,18 @@ def main():
     if st.session_state.rag_chain is None:
         st.session_state.rag_chain = setup_rag_system(conn)
 
-    # Cyberpunk neon footer CSS
+    # Cyberpunk neon footer CSS (for all pages except Documentation tab)
     footer_style = """
     <style>
     .cyberpunk-footer {
         position: fixed; bottom: 10px; left: 0; width: 100%; text-align: center;
-        font-family: 'Courier New', monospace; font-size: 16px; color: #00FF00;
-        text-shadow: 0 0 5px #00FF00, 0 0 10px #00FF00, 0 0 20px #00FF00;
+        font-family: 'Courier New', monospace; font-size: 16px; color: #26A69A;  /* Updated to Crawl4AI teal */
+        text-shadow: 0 0 5px #26A69A, 0 0 10px #26A69A, 0 0 20px #26A69A;
         animation: matrix 1.5s infinite alternate;
     }
     @keyframes matrix { from { opacity: 0.7; } to { opacity: 1; } }
-    .cyberpunk-footer a { color: #00FF00; text-decoration: none; }
-    .cyberpunk-footer a:hover { text-shadow: 0 0 10px #00FF00, 0 0 20px #00FF00, 0 0 30px #00FF00; }
+    .cyberpunk-footer a { color: #4DD0E1; text-decoration: none; }  /* Updated to Crawl4AI light teal */
+    .cyberpunk-footer a:hover { text-shadow: 0 0 10px #4DD0E1, 0 0 20px #4DD0E1, 0 0 30px #4DD0E1; }
     </style>
     """
     st.markdown(footer_style, unsafe_allow_html=True)
@@ -275,34 +276,30 @@ def main():
                                 perplexity_context = query_perplexity(processed_query.split(" [")[0])
                             else:
                                 perplexity_context = ""
-                            # Handle invoke returning a dict
                             result_dict = st.session_state.rag_chain.invoke(processed_query + (f"\nAdditional Web Context: {perplexity_context}" if is_crawl else ""))
-                            result = result_dict.get('result', str(result_dict))  # Extract 'result' key or convert dict to string
-                            latency = 0  # Placeholder; LangChain doesn't provide latency directly
+                            result = result_dict.get('result', str(result_dict))
+                            latency = 0  # LangChain doesn't provide latency directly
                             model_name = "Local DeepSeek (RAG)"
                             actions = 1
                             reasoning = "RAG-based response with memory and optional web context"
 
-                            # Script execution logic
                             if "execute" in processed_query.lower() and "```" in result:
                                 try:
-                                    # Extract code block (assumes markdown format with ```)
                                     code_blocks = result.split("```")
                                     if len(code_blocks) > 1:
                                         script_content = code_blocks[1].strip()
                                         script_name = "temp_script.py"
                                         with open(script_name, "w", encoding="utf-8") as f:
                                             f.write(script_content)
-                                        # Execute the script safely
                                         process = subprocess.run(
                                             [sys.executable, script_name],
                                             capture_output=True,
                                             text=True,
-                                            timeout=10  # Prevent infinite loops
+                                            timeout=10
                                         )
                                         execution_output = f"Script Output:\n{process.stdout}\nErrors (if any):\n{process.stderr}"
                                         result += f"\n\n**Execution Result:**\n{execution_output}"
-                                        os.remove(script_name)  # Clean up
+                                        os.remove(script_name)
                                     else:
                                         result += "\n\n**Execution Result:** No valid code block found."
                                 except subprocess.TimeoutExpired:
@@ -310,7 +307,6 @@ def main():
                                 except Exception as e:
                                     result += f"\n\n**Execution Result:** Failed to execute script: {str(e)}"
                                     logger.error(f"Script execution failed: {e}")
-
                         except Exception as e:
                             logger.error(f"RAG query failed: {e}")
                             result = f"Error: {e}"
@@ -363,7 +359,7 @@ def main():
                         "latency": latency,
                         "actions": actions,
                         "model_reasoning": reasoning,
-                        "input_tokens": 0,  # Placeholder; add if available from LangChain
+                        "input_tokens": 0,
                         "output_tokens": len(result.split()) if result else 0
                     }
                     st.session_state.telemetry_data.append(result_entry)
@@ -431,18 +427,39 @@ def main():
 
     with tabs[3]:
         st.header("Documentation")
+        # Load custom CSS for Documentation tab
         try:
-            with open("README.md", "r") as f:
-                st.markdown(f.read(), unsafe_allow_html=True)
+            with open("docs/docs/styles/custom.css", "r") as f:
+                st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
         except FileNotFoundError:
-            st.error("README.md not found.")
-        
-        st.header("System Documentation")
+            st.error("Custom CSS file not found at 'docs/docs/styles/custom.css'.")
+            logger.error("Custom CSS file not found at 'docs/docs/styles/custom.css'.")
+
+        # Load index.md as primary documentation
         try:
-            with open("SYSTEM_DOCUMENTATION.md", "r") as f:
-                st.markdown(f.read(), unsafe_allow_html=True)
+            with open("docs/docs/index.md", "r") as f:
+                md_content = f.read()
+                html_content = markdown.markdown(md_content, extensions=['pymdownx.highlight', 'pymdownx.superfences', 'md_in_html'])
+                st.markdown(html_content, unsafe_allow_html=True)
         except FileNotFoundError:
-            st.error("SYSTEM_DOCUMENTATION.md not found.")
+            st.error("Documentation file not found at 'docs/docs/index.md'.")
+            logger.error("Documentation file not found at 'docs/docs/index.md'.")
+
+        # Add footer image matching Markdown with error handling
+        footer_html = (
+            '<div class="md-footer-custom">'
+            '<img src="docs/docs/assets/powered_by_villageofthousands.gif" alt="Powered by Village of Thousands">'
+            '</div>'
+        )
+        try:
+            if os.path.exists("docs/docs/assets/powered_by_villageofthousands.gif"):
+                st.markdown(footer_html, unsafe_allow_html=True)
+            else:
+                st.warning("Footer image not found at 'docs/docs/assets/powered_by_villageofthousands.gif'. Please add it.")
+                logger.warning("Footer image not found at 'docs/docs/assets/powered_by_villageofthousands.gif'.")
+        except Exception as e:
+            st.error(f"Failed to load footer image: {str(e)}")
+            logger.error(f"Failed to load footer image: {str(e)}")
 
     with tabs[4]:
         st.header("Telemetry & Report")
@@ -472,7 +489,7 @@ def main():
         else:
             st.info("No queries recorded for today.")
 
-    # Footer displayed on all tabs
+    # Footer displayed on all tabs except Documentation (where it's custom)
     st.markdown('<div class="cyberpunk-footer">Powered by <a href="https://www.villageofthousands.io/" target="_blank">https://www.villageofthousands.io/</a></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
