@@ -1,8 +1,8 @@
-.env
-vots_agi_memory.db
-vots_agi.log
-votsai-backup-*.tar.gz
-__pycache__
-*.pyc
 venv/
-.next/
+*.log
+*.pyc
+__pycache__/
+*.db
+*.tar.gz
+*.gguf
+unsloth_compiled_cache/
