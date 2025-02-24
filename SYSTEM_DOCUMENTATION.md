@@ -1,33 +1,60 @@
-# 🌳📜 VOTSai System Documentation
+# 🌳📜 VOTSai System Documentation v2.0
 
 [![Powered by VillageOfThousands.io](docs/assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
 
-Welcome to the **VOTSai System Documentation**! This guide offers a detailed exploration of the VOTSai project, tailored for developers, researchers, and AI enthusiasts. VOTSai is an open-source, Streamlit-based platform integrating **Crawl4AI** for web crawling and **Ollama**'s `deepseek-r1:7b` for local AI assistance. It's designed to empower users with robust research tools, code analysis, and project management capabilities.
+Welcome to the updated **VOTSai System Documentation**! This guide offers a detailed exploration of the enhanced VOTSai project, tailored for developers, researchers, and AI enthusiasts. VOTSai is an open-source, Streamlit-based platform integrating **Crawl4AI** for web crawling and **Ollama**'s `deepseek-r1:7b` for local AI assistance, with significant architecture improvements.
 
 ---
 
-## 🌟 System Overview (High-Level)
-### What is VOTSai?
-VOTSai is built for developers, researchers, and AI enthusiasts, providing:
-- **🔍 Web Crawling:** Fetch static and dynamic content with Crawl4AI.
-- **🧠 AI Queries:** Leverage Perplexity API, DeepSeek API, or local `deepseek-r1:7b`.
-- **💻 Code Analysis:** Enhance scripts with AI-driven insights.
-- **📚 Memory Management:** Store and recall research via SQLite and in-memory deque.
-- **📂 Project Assistance:** Local model access to directory contents for Git and improvements.
+## 🌟 System Architecture (v2.0)
 
-### Purpose
-Enable seamless research, project optimization, and local AI assistance through an intuitive, extensible interface—runnable locally or hosted on the cloud.
+VOTSai now implements a more modular, service-oriented architecture with:
 
-### Key Technologies
-- **Streamlit:** Interactive web UI.
-- **Crawl4AI:** Advanced crawling with Playwright.
-- **Ollama:** Hosts `deepseek-r1:7b` locally.
-- **SQLite:** Persistent storage for long-term memory.
+- **📦 Service Layer Pattern:** Decoupling core business logic from data access
+- **⚙️ Configuration Management:** Centralized settings via YAML and environment variables
+- **🔄 Model Factory & Cache:** Efficient model handling with singleton caching
+- **🛡️ Validation & Security:** Enhanced input validation and rate limiting
+- **📊 Progress Tracking:** Transparent operation monitoring and reporting
+
+### Core Components
+
+1. **Web Interface Layer (Streamlit)**
+   - Provides interactive UI for querying and configuration
+   - Manages user session state
+   - Renders visualizations and results
+
+2. **Orchestration Layer**
+   - Coordinates request flow between components
+   - Handles request routing and timeouts
+   - Implements memory management
+
+3. **Model Layer**
+   - Abstracts different AI model implementations
+   - Provides unified interface for queries
+   - Handles model caching and resource management
+
+4. **Memory System**
+   - Short-term memory (in-memory)
+   - Long-term memory (SQLite)
+   - Memory service with context retrieval
+
+5. **Analysis Components**
+   - Code analyzer
+   - Project analyzer
+   - Directory & Git utilities
+
+6. **Utilities**
+   - Configuration management
+   - Token counting & optimization
+   - Input validation & sanitization
+   - Progress tracking
+   - Rate limiting
 
 ---
 
-## 📂 Repository Structure (Tree)
+## 📂 Repository Structure (Updated)
 
+```
 VOTSai/
 ├── .env                  # API keys (excluded from Git)
 ├── .git/                 # Git repository data
@@ -36,6 +63,7 @@ VOTSai/
 ├── README.md             # Project overview and quick start
 ├── SYSTEM_DOCUMENTATION.md # This detailed system guide
 ├── app.py                # Main Streamlit application
+├── config.yaml           # Configuration file
 ├── mkdocs.yml            # MkDocs configuration
 ├── requirements.txt      # Python dependencies
 ├── vots_agi.log          # Runtime logs (excluded from Git)
@@ -44,9 +72,10 @@ VOTSai/
 ├── agents/               # Agent scripts
 │   └── codeAgent.py      # Code analysis with DeepSeek
 ├── core/                 # Core functionality
-│   ├── init.py
+│   ├── __init__.py
 │   ├── classifier.py     # Intent classifier for model selection
 │   ├── memory.py         # Memory management (SQLite)
+│   ├── model_cache.py    # Model caching singleton
 │   └── models.py         # Model factory and implementations
 ├── docs/                 # MkDocs documentation pages
 │   ├── index.md          # Home page
@@ -63,22 +92,44 @@ VOTSai/
 │   ├── deployment.md     # Deployment instructions
 │   └── contributing.md   # Contributing guide
 ├── handlers/             # Query and web handling
-│   ├── init.py
+│   ├── __init__.py
 │   ├── query.py          # Query orchestration
 │   └── web.py            # Web crawling with Crawl4AI
+├── services/             # Service layer
+│   ├── __init__.py
+│   └── memory_service.py # Memory service
+├── tests/                # Test suite
+│   ├── __init__.py
+│   ├── test_models.py    # Model tests
+│   ├── test_memory.py    # Memory tests
+│   └── test_integration.py # Integration tests
 ├── utils/                # Utility functions
-│   ├── init.py
+│   ├── __init__.py
+│   ├── config.py         # Configuration manager
 │   ├── constants.py      # Constants (e.g., SHORT_TERM_MAX)
-│   └── helpers.py        # Helpers (e.g., format_response)
+│   ├── helpers.py        # Helpers (e.g., format_response)
+│   ├── progress_tracker.py # Progress tracking
+│   ├── rate_limiter.py   # Rate limiting
+│   ├── token_manager.py  # Token counting & optimization
+│   └── validators.py     # Input validation
 └── venv/                 # Virtual environment (excluded from Git)
-
+```
 
 ---
 
-## 📦 Dependencies
-Listed in `requirements.txt`:
+## 📦 Dependencies (Updated)
 
-streamlit>=1.32.0
+Listed in the updated `requirements.txt`:
+
+```
+streamlit>=1.38.0
+langchain>=0.3.0
+langchain-ollama>=0.1.3
+faiss-cpu>=1.9.0
+pandas>=2.2.3
+altair>=5.4.1
+markdown>=3.7.0
+requests>=2.32.3
 crawl4ai>=0.4.3
 playwright>=1.50.0
 openai>=1.12.0
@@ -89,91 +140,215 @@ scikit-learn>=1.4.0
 numpy>=1.26.0
 mkdocs>=1.6.0
 mkdocs-material>=9.5.0
+pyyaml>=6.0.1
+```
 
 **Install:**
-```bash
+```
 pip install -r requirements.txt
 python -m playwright install
+```
 
-🛠️ How It Works
-High-Level Overview
-VOTSai is a Streamlit-based web app (app.py) with three tabs:
+---
 
-    Query: Processes web crawls, AI queries, and memory recalls.
-    Code Analysis: Offers code review via deepseek-r1:7b.
-    Directory & Git: Feeds directory context to the local model.
+## 🛠️ Architectural Improvements
 
-Workflow:
+### 1. Configuration Management
+VOTSai now uses a centralized configuration system with:
+- YAML config file support
+- Environment variable overrides
+- Runtime configuration updates
+- Type validation and conversion
 
-    User submits a query/code/Git request via UI.
-    Intent classifier (core/classifier.py) selects the model.
-    Query orchestrator (handlers/query.py) routes the request.
-    Results are formatted (utils/helpers.py) and displayed.
+Example:
+```python
+from utils.config import Config
 
-🚀 Usage Examples
+# Get configuration values
+timeout = Config.get("models.timeout", 60)
+db_path = Config.get("memory.db_path", "vots_agi_memory.db")
 
-    Crawl: crawl https://example.com → Summarized HTML.
-    Query: how does quantization work? → Explanation from DeepSeek.
-    Recall: recall quantum → Past results from SQLite.
-    Code: def add(a, b): return a + b → Optimization suggestions.
-    Git: suggest a commit message → "Enhance VOTSai with feature X".
+# Update configuration
+Config.set("models.temperature", 0.8)
+```
 
-📋 Deployment
-Local
-bash
+### 2. Service Layer Pattern
+Database operations are now encapsulated in service classes:
+- Memory service for database operations
+- Clear separation of concerns
+- Improved error handling
+- Connection management
 
-streamlit run app.py
+Example:
+```python
+from services.memory_service import MemoryService
 
-Streamlit Cloud
+# Using memory service
+memory_service = MemoryService("vots_agi_memory.db")
+relevant_memories = memory_service.get_relevant_memories("quantum computing", limit=3)
+memory_service.add_memory(query="What is AGI?", answer="Artificial General Intelligence...", model_used="DeepSeek API")
+```
 
-    Push to GitHub: git push origin main
-    Configure at streamlit.io/cloud:
-        Repo: kabrony/VOTSai
-        Branch: main
-        File: app.py
-    Add secrets: .env contents.
+### 3. Model Caching
+Efficient model handling with:
+- Singleton cache implementation
+- Automatic resource cleanup
+- Thread-safe access
+- Performance monitoring
 
-GitHub Pages (Docs)
-bash
+Example:
+```python
+from core.model_cache import ModelCache
 
-mkdocs gh-deploy
+# Get or create a model
+cache = ModelCache()
+model = cache.get_model(
+    "DeepSeek API",
+    create_deepseek_model,  # Factory function
+    api_key="your-api-key"
+)
 
-Visit https://kabrony.github.io/VOTSai.
+# Periodic maintenance
+removed = cache.clean_cache()
+print(f"Removed {removed} idle models")
+```
 
+### 4. Token Management
+Optimized token handling:
+- Accurate counting for different models
+- Token caching for performance
+- Text chunking with overlap
+- Cost estimation
 
-Update the file using:
+Example:
+```python
+from utils.token_manager import TokenManager
+
+# Count tokens
+input_tokens = TokenManager.count_tokens(query + context, "DeepSeek API")
+
+# Truncate if needed
+truncated_context = TokenManager.truncate_to_tokens(context, 2000, "DeepSeek API")
+
+# Split into chunks
+chunks = TokenManager.split_into_chunks(document, 1000, "DeepSeek API", overlap=100)
+```
+
+### 5. Input Validation & Security
+Enhanced security with:
+- Input validation for all user inputs
+- Output sanitization
+- URL and code validation
+- Parameter validation
+
+Example:
+```python
+from utils.validators import Validator
+
+# Validate query
+is_valid, error = Validator.validate_query(query)
+if not is_valid:
+    return {"error": error}
+
+# Sanitize output
+safe_output = Validator.sanitize_output(model_response)
+```
+
+### 6. Progress Tracking
+Transparent long-running operations:
+- Operation status tracking
+- ETA calculation
+- Result storage
+- Error handling
+
+Example:
+```python
+from utils.progress_tracker import ProgressTracker
+
+# Start an operation
+tracker = ProgressTracker()
+op_id = tracker.start_operation("analysis", "Analyzing code...")
+
+# Update progress
+tracker.update_progress(op_id, 0.5, "Halfway through analysis")
+
+# Complete the operation
+tracker.complete_operation(op_id, {"suggestions": ["Improve error handling", "Add docstrings"]})
+
+# Get operation status
+status = tracker.get_operation(op_id)
+print(f"Operation {status['id']} is {status['status']} with progress {status['progress']:.1%}")
+```
+
+### 7. Rate Limiting
+Protection against abuse:
+- Request rate limiting
+- Token usage tracking
+- Client-specific limits
+- Usage statistics
+
+Example:
+```python
+from utils.rate_limiter import RateLimiter
+
+# Check rate limit
+limiter = RateLimiter()
+within_limit, error = limiter.check_rate_limit("user123")
+
+if not within_limit:
+    return {"error": error}
+
+# Record a request with token usage
+limiter.record_request("user123", input_tokens=500, output_tokens=200)
+
+# Get usage statistics
+stats = limiter.get_usage_stats("user123")
+print(f"Requests in last hour: {stats['requests']['last_hour']}")
+```
+
+## 8. Prepare for Git
+
+After implementing the changes, prepare for Git with:
+
 ```bash
-cat << 'EOF' > ~/VOTSai/SYSTEM_DOCUMENTATION.md
-# ... (paste the content above) ...
-EOF
+# Create empty __init__.py files in each directory
+touch utils/__init__.py
+touch services/__init__.py
+touch core/__init__.py
+touch handlers/__init__.py
+touch agents/__init__.py
+touch tests/__init__.py
 
-Step 3: Update MkDocs Pages
-You need to add the clickable animated badge to all MkDocs pages under the docs/ directory. The image path depends on the file's location:
+# Add new files to Git
+git add config.yaml
+git add requirements.txt
+git add SYSTEM_DOCUMENTATION.md
+git add utils/config.py
+git add utils/token_manager.py
+git add utils/validators.py
+git add utils/progress_tracker.py
+git add utils/rate_limiter.py
+git add services/memory_service.py
+git add core/model_cache.py
+git add utils/__init__.py
+git add services/__init__.py
+git add core/__init__.py
+git add handlers/__init__.py
+git add agents/__init__.py
+git add tests/__init__.py
 
-    For files in docs/ (e.g., index.md, quickstart.md):
-    markdown
+# Commit the changes
+git commit -m "Implement architectural improvements for VOTSai v2.0
 
-[![Powered by VillageOfThousands.io](assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
+- Add configuration management system
+- Implement service layer pattern
+- Add model caching
+- Add token management
+- Implement input validation
+- Add progress tracking
+- Add rate limiting
+- Update documentation"
 
-For files in subdirectories (e.g., docs/core/crawling.md, docs/advanced/config.md):
-markdown
-
-    [![Powered by VillageOfThousands.io](../assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
-
-As an example, update docs/index.md:
-markdown
-
-# 🚀🤖 Welcome to VOTSai Documentation
-
-[![Powered by VillageOfThousands.io](assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
-
-**VOTSai** is a cutting-edge, open-source platform for AI-driven research, seamlessly integrating **Crawl4AI** for powerful web crawling and local model support with Ollama's `deepseek-r1:7b`.
-
-## 🌟 Why VOTSai?
-- **🔍 Advanced Crawling:** Fetch static and dynamic content with Crawl4AI.
-- **🧠 Flexible AI:** Choose between Perplexity, DeepSeek, or local models.
-- **📚 Smart Memory:** Retain and recall research with SQLite.
-- **💻 Code Insights:** Optimize your scripts with AI assistance.
-- **📂 Project Awareness:** Local model sees your directory for Git and improvements.
-
-Dive into the [Quick Start](#quick-start) to get up and running in minutes!
+# Push changes
+git push origin main
+```
