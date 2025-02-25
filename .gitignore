@@ -57,3 +57,5 @@ votsai-backup-*.tar.gz
 
 # Logs
 *.log
+venv/
+*.so
