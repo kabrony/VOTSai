@@ -1,0 +1,27 @@
+# Claude 3.7 Sonnet Configuration
+model_id: "claude-3.7-sonnet-20250224"
+api_version: "2025-02-24"
+features:
+  hybrid_reasoning: true
+  github_integration: true
+  extended_output: true  # Up to 128K tokens
+
+# Hybrid Reasoning Settings
+reasoning:
+  thinking_modes:
+    - "auto"     # Let Claude decide when to use extended thinking
+    - "instant"  # Quick responses without extended thinking
+    - "extended" # Always use extended thinking
+  default_mode: "auto"
+  max_thinking_time: 45  # Default max seconds for thinking (1-120)
+  reasoning_visibility:
+    - "hidden"   # Don't show thinking process
+    - "partial"  # Show summary of thinking
+    - "full"     # Show complete thinking process
+  default_visibility: "partial"
+
+# Performance Settings
+performance:
+  input_cost_per_million: 3.00   # $3 per million input tokens
+  output_cost_per_million: 15.00 # $15 per million output tokens (includes thinking)
+  max_output_tokens: 64000       # GA limit (beta supports 128K) 

@@ -1,0 +1,5 @@
+# _expired_attrs_2_0
+
+Dict of expired attributes that are discontinued since 2.0 release.
+Each item is associated with a migration note.
+

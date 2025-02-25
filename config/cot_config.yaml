@@ -1,0 +1,24 @@
+# Chain of Thought Configuration
+
+# Enable/disable CoT by default
+enabled: true
+
+# CoT temperature (higher = more exploratory reasoning)
+temperature: 0.7
+
+# Maximum reasoning steps
+max_steps: 10
+
+# Extract reasoning from responses
+extract_reasoning: true
+
+# Format for reasoning display
+format: "markdown"
+
+# Domain-specific templates
+templates:
+  general: "Let me think about this step by step:\n1. "
+  math: "To solve this math problem, I'll work through it step by step:\n1. "
+  code: "Let me analyze this code step by step:\n1. "
+  science: "To answer this scientific question, I'll reason step by step:\n1. "
+  logic: "Let me solve this logical problem systematically:\n1. " 

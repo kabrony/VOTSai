@@ -1,0 +1,48 @@
+:root {
+  --md-primary-fg-color: #26A69A;  /* Teal for headers */
+  --md-default-bg-color: #212121;   /* Dark gray background */
+  --md-default-fg-color: #FFFFFF;   /* White text */
+  --md-accent-fg-color: #4DD0E1;    /* Lighter teal for links */
+  --md-code-bg-color: #2E2E2E;      /* Slightly lighter gray for code */
+  --md-code-fg-color: #26A69A;      /* Teal code text */
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--md-primary-fg-color);
+  text-shadow: 0 0 3px #26A69A;
+}
+
+.highlight pre {
+  background-color: var(--md-code-bg-color);
+  border-left: 4px solid #26A69A;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+}
+
+a {
+  color: var(--md-accent-fg-color);
+  transition: text-shadow 0.3s ease;
+}
+a:hover {
+  text-shadow: 0 0 5px #4DD0E1, 0 0 10px #4DD0E1;
+}
+
+.md-nav__title {
+  background-color: #2E2E2E;
+  color: #26A69A;
+}
+
+.md-footer-custom {
+  text-align: center;
+  padding: 10px;
+  background-color: #2E2E2E;
+  border-top: 2px solid #26A69A;
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+}
+
+.md-footer-custom img {
+  max-width: 200px;
+  margin: 0 auto;
+}

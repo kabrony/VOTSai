@@ -8,6 +8,7 @@ from tenacity import retry, wait_exponential, stop_after_attempt
 from utils.helpers import count_tokens
 from core.classifier import IntentClassifier
 import logging
+from core.claude_api import ClaudeAPI
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ class LocalDeepSeek(AIModel):
             ollama.list()
             full_query = f"{query}\nWeb Context: {web_context}" if web_context else query
             response = ollama.chat(
-                model="deepseek-r1:7b",
+                model="bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q2_K",
                 messages=[
                     {"role": "system", "content": f"Provide concise, well-formatted answers. Memory: {memory_context}"},
                     {"role": "user", "content": full_query}
@@ -116,7 +117,8 @@ class ModelFactory:
         models = {
             "Perplexity API": PerplexityAPI(),
             "DeepSeek API": DeepSeekAPI(),
-            "Local DeepSeek": LocalDeepSeek()
+            "Local DeepSeek": LocalDeepSeek(),
+            "Claude API": ClaudeAPI()
         }
         return models.get(model_name, LocalDeepSeek())
 

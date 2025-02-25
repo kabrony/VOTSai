@@ -1,0 +1,31 @@
+site_name: VOTSai Documentation
+repo_url: https://github.com/kabrony/VOTSai
+repo_name: VOTSai
+theme:
+  name: terminal
+  palette:
+    primary: '#26A69A'    # Teal for headers and accents (Crawl4AI primary)
+    background: '#212121' # Dark gray background (Crawl4AI base)
+    text: '#FFFFFF'       # White text for contrast
+    link: '#4DD0E1'       # Lighter teal/cyan for links
+  features:
+    - navigation.side.indexes
+    - revision.date
+nav:
+  - Home: docs/index.md
+  - Setup: docs/setup.md
+  - Scripts:
+      - Index: docs/scripts/index.md
+      - Project Analyzer: docs/scripts/project_analyzer.md
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.emoji
+  - md_in_html
+plugins:
+  - git-revision-date
+extra_css:
+  - docs/styles/custom.css
+extra:
+  footer_image: /docs/assets/powered_by_villageofthousands.gif

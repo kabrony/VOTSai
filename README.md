@@ -1,134 +1,132 @@
-# 🚀🤖 VOTSai: Advanced AI Research Platform with Crawl4AI Integration
+# TRILOGY Brain
 
-[![Powered by VillageOfThousands.io](docs/assets/powered_by_villageofthousands.gif)](https://VillageOfThousands.io)
+<div align="center">
+  <img src="docs/images/trilogy_logo.png" alt="TRILOGY Brain Logo" width="300px">
+  <br>
+  <h3>Advanced AI Orchestration System</h3>
+  <p>Seamlessly integrate multiple AI models with chain-of-thought reasoning</p>
+  
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+  [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
+  [![Powered by VillageOfThousands](https://img.shields.io/badge/Powered%20by-VillageOfThousands-purple)](https://villageofthousands.io)
+</div>
 
-**VOTSai** is a powerful, open-source, Streamlit-based platform designed for AI-driven research, enhanced with **Crawl4AI** for robust web crawling and local model support via Ollama's `deepseek-r1:7b`. Explore the web, analyze code, and leverage memory with a sleek, user-friendly interface.
+## 🚀 Features
 
----
+- **Multi-Model Orchestration**: Seamlessly use local and API-based models
+- **Intelligent Router**: Auto-selects the optimal model based on query characteristics
+- **Chain of Thought Reasoning**: Step-by-step reasoning process visualization
+- **Matrix-inspired UI**: Cyberpunk-styled terminal interface
+- **Advanced Memory System**: Vector-based semantic memory with visualization
+- **Plugin Architecture**: Extend functionality with custom plugins
+- **Analytics Dashboard**: Track model performance across different domains
 
-## 🌟 Features
+## 🧠 Supported Models
 
-- **🔍 Robust Web Crawling:** Powered by Crawl4AI, crawl static and dynamic pages with JavaScript rendering.
-- **🧠 Multi-Model Support:** Query Perplexity API, DeepSeek API, or local `deepseek-r1:7b` with intent-based selection.
-- **📚 Memory System:** Persistent SQLite database for long-term memory, paired with short-term deque tracking.
-- **💻 Code Analysis:** DeepSeek-powered code review and improvement suggestions.
-- **📂 Directory Insights:** Local model access to project files for Git and optimization help.
-- **📜 Structured Output:** Responses in Text, Markdown, or JSON with shareable links.
+TRILOGY Brain supports a variety of AI models:
 
----
+- **Local Models** via [Ollama](https://ollama.ai/)
+  - Llama 2/3
+  - CodeLlama
+  - Mistral
+  - And any other models available in Ollama
 
-## 📦 Quick Start
+- **API Models**
+  - Claude (via Anthropic API)
+  - DeepSeek (via DeepSeek API)
+  - Perplexity Sonar (with web search capabilities)
 
-### Prerequisites
-- **Python 3.12+**
-- **Git**
-- **Virtual Environment** (`venv`)
-- **Ollama** (for local `deepseek-r1:7b`)
+## 📋 Requirements
 
-### Installation
+- Python 3.8+
+- [Ollama](https://ollama.ai/) (for local model integration)
+- API keys for Claude, DeepSeek, or Perplexity (optional)
+
+## 🔧 Installation
+
 ```bash
-git clone https://github.com/kabrony/VOTSai.git
-cd VOTSai
-python3 -m venv venv
-source venv/bin/activate
+# Clone the repository
+git clone https://github.com/yourusername/trilogy-brain.git
+cd trilogy-brain
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
-python -m playwright install  # Install Crawl4AI browser dependencies
 
-Running Locally
+# Set up environment variables (optional for API models)
+export ANTHROPIC_API_KEY="your_claude_api_key"
+export DEEPSEEK_API_KEY="your_deepseek_api_key"
+export PERPLEXITY_API_KEY="your_perplexity_api_key"
+```
 
-    Start Ollama (if using local model):
-    bash
+## 🏃‍♂️ Getting Started
 
-ollama run deepseek-r1:7b
+```bash
+# Start the UI
+streamlit run trilogy_app.py
 
-Launch VOTSai:
-bash
+# Or use the CLI example
+python examples/basic_usage.py
+```
 
-    streamlit run app.py
+## 🧩 Architecture
 
-    Open http://localhost:8501 in your browser.
+TRILOGY Brain follows a modular architecture:
 
-Configuration
-Set API keys in .env:
+```
+trilogy-brain/
+├── core/           # Core orchestration components
+│   ├── memory/     # Memory systems
+│   ├── reasoning/  # Reasoning systems
+│   └── plugins/    # Plugin system
+├── models/         # Model integrations
+├── ui/             # User interface components
+│   └── components/ # Reusable UI components
+├── utils/          # Utility functions
+├── plugins/        # Plugin implementations
+├── docs/           # Documentation
+└── api/            # API endpoints
+```
 
-PERPLEXITY_API_KEY=your_perplexity_key
-DEEPSEEK_API_KEY=your_deepseek_key
+The system uses:
+- **Chain of Thought Processing**: Advanced reasoning capabilities
+- **Intelligent Router**: Optimal model selection
+- **Vector Memory System**: Semantic search for conversation history
+- **Terminal UI**: Matrix-inspired interface
+- **Plugin Architecture**: Extensible functionality
 
-🛠️ Core Features
-Web Crawling with Crawl4AI
-Crawl any URL with advanced JavaScript rendering:
+## 🔌 Using Plugins
 
-    Query: crawl https://example.com
-    Result: Summarized content in your chosen format (Text, Markdown, JSON).
+TRILOGY Brain comes with several built-in plugins:
 
-Multi-Model Queries
+- **Calculator**: Perform mathematical calculations
+- **Translator**: Translate text between languages
 
-    General/Web: Perplexity API (e.g., "what is quantum AGI?").
-    Technical/Conceptual: DeepSeek API or local deepseek-r1:7b (e.g., "how does quantization work?").
-    Auto Selection: Intent-based model choice via Naive Bayes classifier.
+You can activate plugins from the Plugins tab in the UI. To create your own plugin:
 
-Memory Management
+1. Create a new folder in the `plugins/` directory
+2. Implement a class that inherits from one of the plugin base classes
+3. Restart the application
 
-    Short-Term: Tracks last 15 queries in-memory.
-    Long-Term: Stores queries and answers in vots_agi_memory.db.
-    Recall: Use recall <query> to retrieve past results.
+See the [Plugin Development Guide](docs/plugin_development_guide.md) for details.
 
-Code Analysis
-Analyze code snippets with deepseek-r1:7b:
+## 📚 Documentation
 
-    Input: def add(a, b): return a + b
-    Output: Suggestions for optimization or error handling.
+For full documentation, see the [docs folder](docs/) or visit our [Documentation Site](https://yourusername.github.io/trilogy-brain).
 
-Directory & Git Assistance
+## 🤝 Contributing
 
-    Directory View: See ~/VOTSai/ contents in the app.
-    Git Help: Query "suggest a commit message" or "how to push to GitHub" for local model advice.
+Contributions are welcome! Please check out our [Contributing Guidelines](CONTRIBUTING.md).
 
-📈 Advanced Usage
-Customizing Queries
+## 📄 License
 
-    Timeout: Adjust crawl/query timeout (10-120s) in the sidebar.
-    Creativity: Tune model temperature (0-100) for creative responses.
-    Web Priority: Toggle web integration for Perplexity API usage.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Example Queries
+## 🙏 Acknowledgements
 
-    Crawl: crawl https://news.ycombinator.com
-    General: explain quantum computing
-    Recall: recall quantum
-    Git: suggest a commit message for adding crawl4ai
-
-Local Model Enhancements
-Feed directory contents to deepseek-r1:7b:
-
-    Query: "improve app.py"
-    Response: Tailored suggestions based on your codebase.
-
-📝 Documentation
-
-    Quick Start (#quick-start): Basic setup instructions (see above).
-    Core Features (#core-features): Detailed guides for each capability.
-    Advanced Usage (#advanced-usage): Tips for power users.
-    API Reference: Coming Soon - Full code-level docs for developers.
-
-🌐 Deployment
-Hosted on Streamlit Community Cloud
-bash
-
-# Deploy Steps
-1. Push to GitHub: `git push origin main`
-2. Configure on Streamlit Cloud:
-   - Repo: kabrony/VOTSai
-   - Branch: main
-   - File: app.py
-3. Add Secrets: PERPLEXITY_API_KEY, DEEPSEEK_API_KEY
-
-Note: SQLite memory is ephemeral on Cloud; use locally for persistence.
-🤝 Contributing
-
-    Star Us: Show support on GitHub!
-    Fork & PR: Add features, fix bugs, or enhance docs.
-    Issues: Report problems or suggest ideas.
-
-🙌 Thanks
-Built with ❤️ by kabrony, powered by Crawl4AI's awesome community and Ollama's local model magic.
+- Powered by [VillageOfThousands.io](https://villageofthousands.io)
+- Chain of Thought implementation inspired by [Google Research](https://research.google/blog/language-models-perform-reasoning-via-chain-of-thought/)
+- Matrix UI inspired by the Matrix film series

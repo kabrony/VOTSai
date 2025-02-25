@@ -1,0 +1,38 @@
+app:
+  name: VOTSai
+  version: 2.0.0
+  log_level: INFO
+  
+models:
+  timeout: 60
+  default: "Auto"
+  temperature: 0.7
+  available:
+    - "Perplexity API"
+    - "DeepSeek API"
+    - "Local DeepSeek"
+    - "Auto"
+  perplexity:
+    base_url: "https://api.perplexity.ai"
+  deepseek:
+    base_url: "https://api.deepseek.com"
+  local:
+    model_name: "deepseek-r1:7b"
+    
+memory:
+  db_path: "vots_agi_memory.db"
+  short_term_max: 20
+  
+crawling:
+  timeout: 30
+  user_agent: "VOTSai/2.0.0 Crawler (https://villageofthousands.io)"
+  
+analysis:
+  important_files:
+    - "app.py"
+    - "core/models.py"
+    - "core/memory.py"
+  exclude_patterns:
+    - "venv/*"
+    - "__pycache__/*"
+    - "*.log" 

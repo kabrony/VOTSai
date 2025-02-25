@@ -1,8 +1,63 @@
-venv/
-*.log
-*.pyc
+# Python
 __pycache__/
-*.db
-*.tar.gz
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# Chat history data
+chat_history.pkl
+
+# Logs
+*.log
+oracle_logs_*.json
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+# Large model files
 *.gguf
+deepseek-r1-distill-llama-8b/
+llama.cpp/
 unsloth_compiled_cache/
+
+# Backup files
+votsai-backup-*.tar.gz
+
+# Database files
+*.db
+
+# Environment and secrets
+.env
+
+# Logs
+*.log
+venv/
+*.so
+venv/
+*.so
